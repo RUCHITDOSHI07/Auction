@@ -8,6 +8,8 @@
 .upload-placeholder strong { font-size:.82rem; }
 .upload-placeholder small { margin-top:.25rem; color:var(--muted); font-size:.68rem; }
 .upload-actions { display:flex; flex-wrap:wrap; gap:.5rem; }
+.import-loader { width:.8rem; height:.8rem; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:import-spin .7s linear infinite; }
+@keyframes import-spin { to { transform:rotate(360deg); } }
 .import-summary-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:.7rem; margin:1.2rem 0; }
 .mini-stat { border-top:2px solid var(--ink); background:rgba(255,255,255,.45); padding:.8rem; }
 .mini-stat.success { border-color:#6aa56b; }.mini-stat.warning { border-color:var(--orange); }.mini-stat.danger { border-color:#bd5b4a; }

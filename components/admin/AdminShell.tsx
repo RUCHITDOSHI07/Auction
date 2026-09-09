@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
+import { refreshAuthenticatedUserClaims, subscribeToAuthState } from "@/lib/firebase/auth";
+import type { User } from "firebase/auth";
 
 const navigation = [
   { href: "/admin", label: "Dashboard", icon: "◫" },
@@ -17,6 +19,50 @@ const navigation = [
 
 export default function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+
+    try {
+      unsubscribe = subscribeToAuthState((user) => {
+        if (!user) {
+          if (active) router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
+          return;
+        }
+
+        void refreshAuthenticatedUserClaims(user)
+          .then((claims) => {
+            if (!active) return;
+            if (claims.admin !== true) {
+              router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
+              return;
+            }
+            setAuthUser(user);
+            setIsAdmin(true);
+            setAuthReady(true);
+          })
+          .catch(() => {
+            if (active) router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
+          });
+      });
+    } catch {
+      router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
+    }
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [pathname, router]);
+
+  if (!authReady || !isAdmin) {
+    return <main className="landing"><p>Checking administrator access...</p></main>;
+  }
 
   return (
     <div className="app-shell admin-shell">
@@ -52,8 +98,8 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           <div className="operator">
             <span className="avatar avatar-small">AK</span>
             <span>
-              <b>Arjun Kapoor</b>
-              <small>Administrator</small>
+              <b>{authUser?.displayName ?? authUser?.email ?? "Administrator"}</b>
+              <small>Administrator · {authUser?.uid.slice(0, 8)}</small>
             </span>
             <span className="operator-more">•••</span>
           </div>

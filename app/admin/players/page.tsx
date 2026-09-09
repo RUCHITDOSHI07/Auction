@@ -1,27 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AdminShell from "@/components/admin/AdminShell";
-import { players } from "@/mock/data";
+import { getPlayers } from "@/lib/firebase/services/players";
+import type { Player } from "@/types/firestore";
 import { PageHeader, StatusBadge } from "@/components/ui/Primitives";
 
 export default function AdminPlayersPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All players");
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    getPlayers()
+      .then((loadedPlayers) => {
+        if (active) setPlayers(loadedPlayers);
+      })
+      .catch((loadError: unknown) => {
+        if (active) setError(loadError instanceof Error ? loadError.message : "Unable to load players.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filtered = players.filter(
     (player) =>
-      (player.name.toLowerCase().includes(query.toLowerCase()) ||
+      ((player.name ?? player.fullName ?? "").toLowerCase().includes(query.toLowerCase()) ||
         player.role.toLowerCase().includes(query.toLowerCase())) &&
-      (filter === "All players" || player.status === filter),
+      (filter === "All players" || player.status.toUpperCase() === filter),
   );
 
   return (
     <AdminShell>
       <div className="content-wrap">
         <PageHeader
-          eyebrow="PLAYER POOL · 120 TRACKED"
+          eyebrow={`PLAYER POOL · ${players.length} TRACKED`}
           title="Players"
           description="Imported talent, auction order, and status tracking are ready for the live room."
           action={
@@ -57,34 +80,42 @@ export default function AdminPlayersPage() {
             <span />
           </div>
 
-          {filtered.map((player) => (
+          {loading && <div className="empty-state compact"><p>Loading players...</p></div>}
+          {!loading && error && <div className="empty-state compact"><p>{error}</p></div>}
+          {!loading && !error && filtered.length === 0 && <div className="empty-state compact"><p>No players found.</p></div>}
+          {!loading && !error && filtered.map((player) => {
+            const playerName = player.name ?? player.fullName ?? "Unnamed player";
+            const playerStatus = player.status.toUpperCase();
+            const initials = player.initials ?? playerName.slice(0, 2).toUpperCase();
+            return (
             <Link className="table-row" href={`/players/${player.id}`} key={player.id}>
               <div className="player-cell">
-                <div className="player-portrait" style={{ background: player.accent }}>{player.initials}</div>
+                <div className="player-portrait" style={{ background: player.accent ?? "#d9ef75" }}>{initials}</div>
                 <div>
-                  <b>{player.name}</b>
-                  <small>{player.age} years · {player.batting}</small>
+                  <b>{playerName}</b>
+                  <small>{player.age ?? "—"} years · {player.battingStyle ?? player.batting ?? "—"}</small>
                 </div>
               </div>
               <span>{player.role}</span>
-              <span className="category-text">{player.category}</span>
+              <span className="category-text">{player.category ?? "—"}</span>
               <strong>{player.basePrice} cr</strong>
               <StatusBadge
                 tone={
-                  player.status === "SOLD"
+                  playerStatus === "SOLD"
                     ? "success"
-                    : player.status === "ON_AUCTION"
+                    : playerStatus === "ON_AUCTION"
                       ? "live"
-                      : player.status === "UNSOLD"
+                      : playerStatus === "UNSOLD"
                         ? "warning"
                         : "neutral"
                 }
               >
-                {player.status.replace("_", " ")}
+                {playerStatus.replace("_", " ")}
               </StatusBadge>
               <span className="row-arrow">↗</span>
             </Link>
-          ))}
+            );
+          })}
         </div>
       </div>
     </AdminShell>
