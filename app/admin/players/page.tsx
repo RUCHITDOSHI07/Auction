@@ -2,32 +2,33 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import PublicHeader from "@/components/public/PublicHeader";
+import AdminShell from "@/components/admin/AdminShell";
 import { players } from "@/mock/data";
 import { PageHeader, StatusBadge } from "@/components/ui/Primitives";
 
-export default function PlayersPage() {
+export default function AdminPlayersPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All players");
+
   const filtered = players.filter(
     (player) =>
-      (player.name.toLowerCase().includes(query.toLowerCase()) || player.role.toLowerCase().includes(query.toLowerCase())) &&
+      (player.name.toLowerCase().includes(query.toLowerCase()) ||
+        player.role.toLowerCase().includes(query.toLowerCase())) &&
       (filter === "All players" || player.status === filter),
   );
 
   return (
-    <main className="public-live">
-      <PublicHeader>
-        <StatusBadge tone="live">PUBLIC</StatusBadge>
-        <span>THE FOUNDERS CUP · 2026</span>
-      </PublicHeader>
-
+    <AdminShell>
       <div className="content-wrap">
         <PageHeader
-          eyebrow="DIRECTORY · 60 PLAYERS"
+          eyebrow="PLAYER POOL · 120 TRACKED"
           title="Players"
-          description="Your complete talent pool, ready for selection."
-          action={<Link className="button button-outline" href="/">Back to home</Link>}
+          description="Imported talent, auction order, and status tracking are ready for the live room."
+          action={
+            <Link className="button button-dark" href="/admin/players/import">
+              Import players
+            </Link>
+          }
         />
 
         <div className="toolbar">
@@ -42,7 +43,7 @@ export default function PlayersPage() {
             <option>UNSOLD</option>
           </select>
           <button className="filter-button" type="button">
-            Marquee · Capped · Emerging⌄
+            Category · All
           </button>
         </div>
 
@@ -86,6 +87,6 @@ export default function PlayersPage() {
           ))}
         </div>
       </div>
-    </main>
+    </AdminShell>
   );
 }

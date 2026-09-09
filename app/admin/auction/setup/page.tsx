@@ -1,17 +1,16 @@
-import Link from "next/link";
-import AppShell from "@/components/layout/AppShell";
+import AdminShell from "@/components/admin/AdminShell";
 import { PageHeader, SectionHeading, StatusBadge } from "@/components/ui/Primitives";
 
 const steps = ["Identity", "Rules", "Player order", "Review"];
 
-export default function SetupPage() {
+export default function AdminAuctionSetupPage() {
   return (
-    <AppShell>
+    <AdminShell>
       <div className="content-wrap narrow-content">
         <PageHeader
           eyebrow="AUCTION SETUP · DRAFT"
           title="Build an auction"
-          description="A few deliberate choices before the room opens."
+          description="Configure the tournament rules, player order, and team settings before the room goes live."
           action={<StatusBadge tone="warning">DRAFT</StatusBadge>}
         />
 
@@ -29,26 +28,26 @@ export default function SetupPage() {
           <div className="form-grid">
             <label>
               Auction name
-              <input defaultValue={"Women's Premier Auction"} />
+              <input defaultValue={"Men's Premier Auction"} />
             </label>
             <label>
               Category
-              <select defaultValue="women">
-                <option value="women">{"Women's auction"}</option>
+              <select defaultValue="men">
                 <option value="men">{"Men's auction"}</option>
+                <option value="women">{"Women's auction"}</option>
               </select>
             </label>
             <label>
               Starting purse
               <input defaultValue="100" type="number" />
-              <small>Credits available to each team</small>
+              <small>Credits available per team</small>
             </label>
             <label>
               Squad size
               <input defaultValue="11" type="number" />
-              <small>Maximum players per team</small>
+              <small>Players selected per team</small>
             </label>
-            <label>
+            <label className="full-field">
               Bid increment
               <input defaultValue="1" type="number" />
               <small>Standard bid step in credits</small>
@@ -68,20 +67,20 @@ export default function SetupPage() {
             <label className="check-row" key={team}>
               <input type="checkbox" defaultChecked />
               <span>{team}</span>
-              <small>100 cr purse · 11 player squad</small>
+              <small>₹100L purse · 11 player squad</small>
             </label>
           ))}
         </section>
 
         <div className="form-actions">
-          <Link className="button button-quiet" href="/auction">
+          <button className="button button-quiet" type="button">
             Cancel
-          </Link>
+          </button>
           <button className="button button-dark" type="button">
             Save and continue <span>→</span>
           </button>
         </div>
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }
