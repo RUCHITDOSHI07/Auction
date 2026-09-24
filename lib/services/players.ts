@@ -80,10 +80,7 @@ async function reservePlayerIds(count: number): Promise<string[]> {
     { upsert: true, returnDocument: "after" },
   );
 
-  const sequenceDocument =
-    "value" in (sequenceResult as object)
-      ? (sequenceResult as PlayerCounter | null)
-      : ((sequenceResult as { value?: PlayerCounter | null })?.value ?? null);
+  const sequenceDocument = sequenceResult;
 
   if (!sequenceDocument) {
     throw new Error("Unable to generate permanent player IDs.");
