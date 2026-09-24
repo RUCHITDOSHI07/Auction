@@ -114,3 +114,27 @@ h1,h2,h3 { font-family:Georgia,"Times New Roman",serif; font-weight:400; }
   .tournament-full-field { grid-column:auto; }
   .tournament-actions { flex-direction:column; }
 }
+
+
+/* Team management UI */
+.team-context-bar { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.8rem; margin:1.2rem 0; }
+.team-context-bar > div { border:1px solid var(--line); background:rgba(255,255,255,.55); padding:1rem; }
+.team-context-bar span,.team-context-bar strong { display:block; }
+.team-context-bar span { color:var(--muted); font-size:.65rem; }
+.team-context-bar strong { margin-top:.35rem; font-family:Georgia,serif; font-size:1.35rem; font-weight:400; }
+.team-form { max-width:70rem; margin-bottom:1.2rem; border:1px solid var(--line); background:rgba(255,255,255,.6); padding:1.4rem; }
+.team-form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+.team-form label { display:flex; min-width:0; flex-direction:column; gap:.45rem; color:var(--muted); font-size:.7rem; font-weight:700; }
+.team-form input { width:100%; border:1px solid var(--line); background:#fff9; padding:.75rem; color:var(--ink); outline-color:var(--lime); }
+.team-grid-modern { align-items:stretch; }
+.team-admin-card { min-width:0; border:1px solid var(--line); background:rgba(255,255,255,.62); padding:1.25rem; }
+.team-admin-card-top { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+.team-admin-card h2 { margin-top:1rem; font-size:1.5rem; overflow-wrap:anywhere; }
+.team-admin-card > p { margin-top:.35rem; min-height:1.2rem; color:var(--muted); font-size:.7rem; }
+.team-admin-metrics { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; margin-top:1.2rem; border-top:1px solid var(--line); padding-top:1rem; }
+.team-admin-metrics div { min-width:0; }
+.team-admin-metrics span,.team-admin-metrics strong,.team-admin-metrics small { display:block; }
+.team-admin-metrics span,.team-admin-metrics small { color:var(--muted); font-size:.62rem; }
+.team-admin-metrics strong { margin:.3rem 0; font-family:Georgia,serif; font-size:1.25rem; font-weight:400; overflow-wrap:anywhere; }
+.team-empty { margin-top:1rem; }
+@media (max-width:560px) { .team-context-bar,.team-form-grid { grid-template-columns:1fr; } .team-admin-metrics { gap:.5rem; } }
