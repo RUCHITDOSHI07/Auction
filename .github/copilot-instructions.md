@@ -1,28 +1,28 @@
-# Copilot Instructions — Cricket Auction Platform
+# Copilot Instructions — PNPL Cricket Auction Platform
 
-## Project source of truth
+## Source of truth
 
 Read `PROJECT_SPEC.md` before implementing or modifying auction functionality.
 
-The project is an admin-controlled cricket auction platform.
+The project is an admin-controlled cricket auction platform using **MongoDB Atlas for application data** and **Google Drive for external file/photo storage**.
 
 ## Non-negotiable product rules
 
 - There is ONLY an Admin role for auction control.
 - There are NO team logins.
-- Teams are configured by the admin before the auction.
 - There is NO public bidding.
 - Public viewers are READ-ONLY.
-- Public viewers can watch the live auction from phones, laptops, TVs, and projectors.
-- Men's and women's auctions are completely independent.
-- Auction setup can be completed days/weeks before the actual event.
+- Men's and women's competitions are completely independent.
+- Men's and women's teams are different records.
 - Auction state must persist across browser closes and later sessions.
 - Admin can pause and resume.
 - Admin controls current bid, highest team, SOLD, UNSOLD, UNDO, and NEXT PLAYER.
 - SOLD/UNSOLD and other auction changes must be persisted.
-- Public screens update in real time only from successfully committed database state.
-- Firestore security rules must prevent public writes.
-- Do not rely on hidden UI buttons for security.
+- Public screens may only display successfully persisted auction state.
+- Never rely on frontend-only security.
+- Do not use Firebase.
+- Do not introduce Firebase Authentication, Firestore, Firebase Storage, or Firebase real-time listeners.
+- Do not add team authentication or public bidding unless the user explicitly changes the requirements.
 
 ## Stack
 
@@ -32,76 +32,143 @@ Prefer:
 - TypeScript
 - React
 - Tailwind CSS
-- Firebase Authentication
-- Firestore
-- Firebase Storage
+- MongoDB Atlas
+- MongoDB Node.js driver
+- bcryptjs
+- MongoDB-backed HTTP-only admin sessions
+- Google Drive for player/team photos and files
 - Vercel
 
 Avoid Socket.IO unless there is a demonstrated requirement.
 
-## Architecture
+## Existing architecture
+
+The repository already contains working MongoDB/admin foundations.
+
+Reuse:
+
+- `lib/mongodb.ts`
+- existing MongoDB services
+- `admins` collection
+- `adminSessions` collection
+- existing admin session cookie/authentication
+- existing player UI and Excel UI
+
+Do not replace working MongoDB authentication with another authentication system.
+
+## Database
+
+MongoDB Atlas is the source of truth.
+
+Target collections:
+
+```
+admins
+adminSessions
+tournaments
+players
+teams
+auctions
+auctionTransactions
+auctionHistory
+playerTournamentHistory
+settings
+```
+
+Keep canonical purchase/transaction records so results and derived purse/squad values can be reconstructed.
+
+Use `tournamentId`, `auctionId`, and `gender`/competition to prevent cross-tournament and cross-gender relationships.
+
+## Permanent Player ID
+
+Player master records have permanent system-generated IDs:
+
+```
+P001
+P002
+P003
+```
+
+The normal player Excel file does NOT require a Player ID.
+
+The application generates the ID when the player is first created.
+
+Once assigned, the ID never changes.
+
+Historical tournament Excel files use this Player ID for matching.
+
+Do not change existing player IDs during unrelated architecture work.
+
+Do not delete existing player records.
+
+## Gender isolation
+
+Gender separation is enforced at the data/API layer, not only through UI filters.
+
+Reject invalid combinations such as:
+
+- male auction + female player
+- male auction + female team
+- wrong tournament + player/team
+- wrong auction + transaction
+
+Reuse the same business logic for men and women, but never mix their records.
+
+## Google Drive
+
+Google Drive is the external file/photo store.
+
+MongoDB should store file IDs/references and appropriate URLs/metadata, not image binary data.
+
+Keep Google Drive integration in a service such as:
+
+`lib/storage/googleDrive.ts`
+
+Do not put Drive API credentials or calls directly into React components.
+
+## Auction architecture
 
 Keep these concerns separate:
 
 - React/UI
-- Firebase data access
+- API/server routes
+- authentication/authorization
+- MongoDB data access
+- Google Drive storage
 - auction business logic
 - calculations
 - validation
 - domain types
 
-Do not put auction calculations directly in UI components.
+Do not put complex auction calculations directly in UI components.
 
 Create reusable auction logic so men's and women's auctions use the same engine with different auction data.
 
-Use strong TypeScript types. Avoid `any`.
-
-## Database
-
-Use Firestore as the source of truth.
-
-Recommended shape:
-
-`tournaments/{tournamentId}`
-
-`tournaments/{tournamentId}/auctions/{auctionId}`
-
-`tournaments/{tournamentId}/auctions/{auctionId}/teams/{teamId}`
-
-`tournaments/{tournamentId}/auctions/{auctionId}/players/{playerId}`
-
-`tournaments/{tournamentId}/auctions/{auctionId}/transactions/{transactionId}`
-
-`tournaments/{tournamentId}/auctions/{auctionId}/history/{historyId}`
-
-Keep men's and women's data separated by auctionId.
-
-Do not trust client-calculated purse or squad data as canonical financial state. Preserve purchase/transaction records so state can be reconstructed.
-
 ## Critical auction operations
 
-SOLD is a critical atomic operation.
+SOLD is a critical mutation.
 
 When SOLD:
 
-- validate player
+- validate auction
+- validate tournament
+- validate gender
+- validate current player
 - validate bid
 - validate highest team
-- mark player SOLD
-- save team
-- save price
-- save round
-- create transaction/history
-- update auction state safely
+- prevent duplicate SOLD
+- persist player sale state
+- create canonical transaction/history
+- persist auction state safely
 
-Prevent duplicate SOLD operations.
+Use MongoDB atomic operations/transactions where appropriate.
 
 UNSOLD:
 
-- mark player UNSOLD
 - retain the player
-- record round/history
-- make available for later rounds according to the rules
+- record the round
+- do not create a purchase
+- allow later-round eligibility according to the rules
 
 ## Maximum Bid
 
@@ -117,52 +184,70 @@ Concept:
 
 `maximumBid = max(0, currentPurse - minimumReserve)`
 
-Recalculate after every sale and whenever the eligible player pool changes.
+Recalculate after every sale and when the eligible pool changes.
 
-Never use Maximum Bid as a hard bid restriction.
+Never use Maximum Bid as a hard restriction.
 
 Put the calculation in a pure, unit-testable function.
 
-## Live display
+## Public live viewer
 
-Public routes should be read-only, such as:
+Public routes may follow:
 
 - `/live/[tournamentId]`
 - `/live/[tournamentId]/men`
 - `/live/[tournamentId]/women`
 
-Use Firestore real-time listeners.
+Public UI must:
 
-The public UI must not contain mutation controls.
+- require no team login
+- contain no mutation controls
+- be mobile-first
+- be projector-friendly
+- display persisted auction state
 
-Firestore rules must enforce public read-only access.
+MongoDB is the source of truth.
 
-Build a mobile-first viewer and ensure projector/large-screen readability.
+Prefer simple server/API polling or refresh behavior for the first implementation. Do not add Socket.IO just to imitate the old Firebase architecture.
 
 ## Persistence
 
 Never rely only on React state.
 
-Current auction state must be persisted in Firestore so the admin can:
+Auction state must be persisted in MongoDB so the admin can:
 
 - close the browser
 - reopen later
 - continue from the same player/bid/round
 - pause and resume
 
-## Rounds
+## Historical tournaments
 
-When a round ends, show a summary and wait for explicit admin action before starting the next round.
+Previous tournaments remain permanently stored.
 
-Unsold players are retained and can return in subsequent rounds.
+Historical player performance/participation belongs in `playerTournamentHistory`.
 
-## Undo
+Historical data may be incomplete. Missing values must remain null/unavailable rather than being silently changed to zero.
 
-Implement safe undo for accidental auction actions.
+Historical Excel uses permanent Player IDs.
 
-Prefer preserving history rather than destructively deleting it.
+Do not build direct CricClubs integration unless explicitly requested.
 
-Do not implement unsafe arbitrary historical rewrites.
+## Migration safety
+
+This repository contains existing player data.
+
+During architecture migration:
+
+- DO NOT delete the MongoDB `players` collection.
+- DO NOT delete existing player records.
+- DO NOT reset or recreate the 47 existing players.
+- DO NOT redesign the existing UI.
+- DO NOT change Player IDs unless the dedicated Player ID migration phase explicitly requires it.
+- Do not introduce Firebase.
+- Reuse existing working MongoDB code.
+- Legacy Firebase files may remain temporarily, but new code must not depend on them.
+- Only remove legacy Firebase files after checking for references/imports.
 
 ## Development workflow
 
@@ -170,26 +255,28 @@ Do not build the whole application in one shot.
 
 Work phase-by-phase:
 
-1. Project/Firebase setup
-2. Tournament creation
-3. Team management
-4. Player management
-5. Auction setup/order
-6. Auction engine/state
-7. Admin live auction
-8. SOLD/UNSOLD/UNDO/PAUSE
-9. Purse/squad/max-bid engine
-10. Rounds
-11. Public live viewer
-12. Mobile/QR experience
-13. Results/history
-14. Security
-15. Testing
-16. Deployment
+1. Architecture/documentation migration
+2. Permanent Player ID
+3. Tournament creation
+4. Team management
+5. Player/tournament pool management
+6. Google Drive storage
+7. Auction setup/order
+8. Auction engine/state
+9. Admin live auction
+10. SOLD/UNSOLD/UNDO/PAUSE
+11. Purse/squad/max-bid engine
+12. Rounds
+13. Public live viewer
+14. Results/history
+15. Historical Excel import
+16. Excel exports
+17. Security/testing
+18. Deployment
 
 For each task:
 
-1. Inspect current repository first.
+1. Inspect the existing repository first.
 2. Read relevant parts of `PROJECT_SPEC.md`.
 3. Reuse existing code where possible.
 4. Implement the smallest coherent change.
@@ -204,14 +291,13 @@ If a requirement is ambiguous, use the simplest interpretation consistent with `
 
 ## Quality bar
 
-The final application should be production-oriented:
+The final application should be:
 
 - secure
 - persistent
-- real-time
 - responsive
 - testable
 - maintainable
 - easy for an admin to operate during a live event
 
-Do not add team authentication or public bidding unless the user explicitly changes the requirements.
+Avoid unnecessary dependencies and architecture complexity.
