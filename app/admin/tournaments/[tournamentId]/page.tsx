@@ -22,18 +22,13 @@ export default function TournamentOverviewPage() {
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to load tournament."));
   }, [params.tournamentId]);
 
-  if (error) {
-    return <AdminShell><div className="content-wrap"><div className="panel"><p>{error}</p><Link className="button button-outline" href="/admin/tournaments">Back to tournaments</Link></div></div></AdminShell>;
-  }
-
-  if (!tournament) {
-    return <AdminShell><div className="content-wrap"><div className="panel"><p>Loading tournament...</p></div></div></AdminShell>;
-  }
+  if (error) return <AdminShell><div className="content-wrap"><div className="panel"><p>{error}</p><Link className="button button-outline" href="/admin/tournaments">Back to tournaments</Link></div></div></AdminShell>;
+  if (!tournament) return <AdminShell><div className="content-wrap"><div className="panel"><p>Loading tournament...</p></div></div></AdminShell>;
 
   const competitions = [
-    tournament.competitions.male.enabled ? { key: "male", title: "Men's competition", description: "Men's teams, player pool, auction and results." } : null,
-    tournament.competitions.female.enabled ? { key: "female", title: "Women's competition", description: "Women's teams, player pool, auction and results." } : null,
-  ].filter(Boolean) as { key: string; title: string; description: string }[];
+    tournament.competitions.male.enabled ? { key: "male" as const, title: "Men's competition", description: "Teams, auction configuration, player pool, auction and results." } : null,
+    tournament.competitions.female.enabled ? { key: "female" as const, title: "Women's competition", description: "Teams, auction configuration, player pool, auction and results." } : null,
+  ].filter(Boolean) as { key: "male" | "female"; title: string; description: string }[];
 
   return (
     <AdminShell>
@@ -52,9 +47,10 @@ export default function TournamentOverviewPage() {
               <h2>{competition.title}</h2>
               <p>{competition.description}</p>
               <div className="competition-links">
-                <Link href={`/admin/teams?tournamentId=${tournament.id}&gender=${competition.key}`}>Teams →</Link>
-                <Link href={`/admin/players?tournamentId=${tournament.id}&gender=${competition.key}`}>Players →</Link>
-                <Link href={`/admin/auction?tournamentId=${tournament.id}&gender=${competition.key}`}>Auction →</Link>
+                <Link href={`/admin/teams?tournamentId=${tournament.id}&gender=${competition.key}`}>1. Teams →</Link>
+                <Link className="primary" href={`/admin/tournaments/${tournament.id}/auction-config?gender=${competition.key}`}>2. Configure Auction →</Link>
+                <Link href={`/admin/players?tournamentId=${tournament.id}&gender=${competition.key}`}>3. Player Pool →</Link>
+                <Link href={`/admin/auction?tournamentId=${tournament.id}&gender=${competition.key}`}>4. Auction →</Link>
               </div>
             </article>
           ))}
