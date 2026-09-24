@@ -48,7 +48,9 @@ async function validate(input: AuctionConfigInput) {
 export async function getAuctionConfig(tournamentId: string, gender: CompetitionGender) {
   const c = await collection(); await ensureIndexes(c);
   const doc = await c.findOne({ tournamentId, gender });
-  return doc ? (() => { const x={...doc}; delete x._id; return x; })() : null;
+  if (!doc) return null;
+  const { _id: _ignoredId, ...config } = doc;
+  return config;
 }
 export async function saveAuctionConfig(input: AuctionConfigInput) {
   const normalized = await validate(input);
