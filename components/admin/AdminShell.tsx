@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { refreshAuthenticatedUserClaims, subscribeToAuthState } from "@/lib/firebase/auth";
-import type { User } from "firebase/auth";
 
 const navigation = [
   { href: "/admin", label: "Dashboard", icon: "◫" },
@@ -20,43 +18,29 @@ const navigation = [
 export default function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authUser, setAuthUser] = useState<{ userId: string; name?: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     let active = true;
-    let unsubscribe: (() => void) | undefined;
-
-    try {
-      unsubscribe = subscribeToAuthState((user) => {
-        if (!user) {
-          if (active) router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
-          return;
-        }
-
-        void refreshAuthenticatedUserClaims(user)
-          .then((claims) => {
-            if (!active) return;
-            if (claims.admin !== true) {
-              router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
-              return;
-            }
-            setAuthUser(user);
-            setIsAdmin(true);
-            setAuthReady(true);
-          })
-          .catch(() => {
-            if (active) router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
-          });
+    fetch("/api/auth/session")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unauthenticated");
+        return response.json() as Promise<{ admin: { userId: string; name?: string } }>;
+      })
+      .then(({ admin }) => {
+        if (!active) return;
+        setAuthUser(admin);
+        setIsAdmin(true);
+        setAuthReady(true);
+      })
+      .catch(() => {
+        if (active) router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
       });
-    } catch {
-      router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
-    }
 
     return () => {
       active = false;
-      unsubscribe?.();
     };
   }, [pathname, router]);
 
@@ -98,11 +82,15 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           <div className="operator">
             <span className="avatar avatar-small">AK</span>
             <span>
-              <b>{authUser?.displayName ?? authUser?.email ?? "Administrator"}</b>
-              <small>Administrator · {authUser?.uid.slice(0, 8)}</small>
+              <b>{authUser?.name ?? authUser?.userId ?? "Administrator"}</b>
+              <small>Administrator · {authUser?.userId}</small>
             </span>
             <span className="operator-more">•••</span>
           </div>
+          <button className="nav-item admin-logout" type="button" onClick={() => { void fetch("/api/auth/logout", { method: "POST" }).finally(() => router.replace("/admin/login")); }}>
+            <span className="nav-icon">↪</span>
+            Sign out
+          </button>
         </div>
       </aside>
 

@@ -3,12 +3,11 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import * as XLSX from "xlsx";
-import { upsertPlayers } from "@/lib/firebase/services/players";
-import { refreshAuthenticatedUserClaims } from "@/lib/firebase/auth";
-import { getFirebaseAuth } from "@/lib/firebase/client";
+import { normalizePlayerGender } from "@/lib/players";
 
 const importColumns = [
   "Full Name",
+  "Gender",
   "Age",
   "Date of Birth",
   "Wing - Flat Number (eg:- B-1701)",
@@ -22,9 +21,9 @@ const importColumns = [
 ];
 
 const sampleRows = [
-  ["Rohit Verma", "28", "14/06/1998", "B-1701", "+91 98765 43210", "rohit-verma.jpg", "Yes", "Batter", "Right-hand", "Right-arm medium", "@rohitverma"],
-  ["Kabir Nair", "31", "02/11/1994", "A-904", "+91 98765 43211", "kabir-nair.jpg", "Yes", "All-rounder", "Left-hand", "Left-arm spin", "@kabirnair"],
-  ["Aisha Rao", "24", "19/02/2002", "C-1203", "+91 98765 43212", "aisha-rao.jpg", "No", "Batter", "Right-hand", "None", "@aisharao"],
+  ["Rohit Verma", "Male", "28", "14/06/1998", "B-1701", "+91 98765 43210", "rohit-verma.jpg", "Yes", "Batter", "Right-hand", "Right-arm medium", "@rohitverma"],
+  ["Kabir Nair", "Male", "31", "02/11/1994", "A-904", "+91 98765 43211", "kabir-nair.jpg", "Yes", "All-rounder", "Left-hand", "Left-arm spin", "@kabirnair"],
+  ["Aisha Rao", "Female", "24", "19/02/2002", "C-1203", "+91 98765 43212", "aisha-rao.jpg", "No", "Batter", "Right-hand", "None", "@aisharao"],
 ];
 
 type ImportSummary = { found: number; valid: number; warnings: number; errors: number };
@@ -62,6 +61,7 @@ function makePlayerCode(name: string, address: string, phone: string) {
 
 function toImportRow(row: Record<string, unknown>) {
   const fullName = getCell(row, "Full Name");
+  const genderValue = getCell(row, "Gender");
   const ageValue = getCell(row, "Age");
   const role = getCell(row, "Role");
   const age = ageValue ? toNumber(ageValue) : undefined;
@@ -71,6 +71,7 @@ function toImportRow(row: Record<string, unknown>) {
   if (!fullName) errors.push("Full Name is required");
   if (!role) errors.push("Role is required");
   if (ageValue && (age === undefined || age < 1 || age > 120)) errors.push("Age must be a valid number");
+  if (genderValue && !normalizePlayerGender(genderValue)) errors.push("Gender must be Male, Female, M, or F");
 
   const address = getCell(row, "Wing - Flat Number (eg:- B-1701)");
   const phone = getCell(row, "Phone Number");
@@ -100,6 +101,7 @@ function toImportRow(row: Record<string, unknown>) {
       playerCode,
       name: fullName,
       fullName,
+      gender: normalizePlayerGender(genderValue),
       category: getCell(row, "Category") || "Uncategorized",
       role,
       age,
@@ -143,28 +145,25 @@ export default function ExcelUpload() {
         if (playerCode) seenPlayerCodes.add(playerCode);
       }
       const validRows = parsed.filter((item) => item.player !== null);
-      const claims = await refreshAuthenticatedUserClaims();
-      if (claims.admin !== true) {
-        throw new Error("permission-denied: The signed-in Firebase token does not contain admin=true. Sign out, sign in again, and retry.");
-      }
-
-      const imported = await upsertPlayers(validRows.map((item) => item.player!));
+      const response = await fetch("/api/players/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ players: validRows.map((item) => item.player!) }),
+      });
+      const result = await response.json() as { processed?: number; inserted?: number; updated?: number; unchanged?: number; duplicateRows?: number; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Unable to import players.");
 
       setPreviewRows(parsed.map((item) => item.row));
       setSummary({
         found: parsed.length,
-        valid: imported,
+        valid: result.processed ?? 0,
         warnings: parsed.reduce((count, item) => count + item.warnings.length, 0) + duplicateRows,
         errors: parsed.reduce((count, item) => count + item.errors.length, 0),
       });
-      setMessage(`Imported ${imported} of ${parsed.length} rows.${duplicateRows ? ` ${duplicateRows} duplicate rows were upserted.` : ""}`);
+      setMessage(`Processed ${result.processed ?? 0} rows: ${result.inserted ?? 0} new, ${result.updated ?? 0} updated, ${result.unchanged ?? 0} unchanged.${duplicateRows ? ` ${duplicateRows} duplicate rows were upserted.` : ""}`);
     } catch (error) {
       setSummary(emptySummary);
-      const currentUser = getFirebaseAuth().currentUser;
-      const diagnostic = currentUser
-        ? ` UID ${currentUser.uid}; project ${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.`
-        : " No authenticated Firebase user is available in this browser.";
-      setMessage(`${error instanceof Error ? error.message : "Unable to read this file."}${diagnostic}`);
+      setMessage(error instanceof Error ? error.message : "Unable to read this file.");
     } finally {
       setProcessing(false);
     }

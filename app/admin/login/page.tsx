@@ -2,11 +2,10 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { signInWithEmailPassword } from "@/lib/firebase/auth";
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [userId, setUserId] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -17,14 +16,11 @@ export default function AdminLoginPage() {
     setLoading(true);
 
     try {
-      const result = await signInWithEmailPassword(email.trim(), password);
+      const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: userId.trim(), password }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Unable to sign in.");
       const next = new URLSearchParams(window.location.search).get("next");
       const nextPath = next && next.startsWith("/admin") && next !== "/admin/login" ? next : "/admin";
-      console.info("Firebase admin authentication verified", {
-        uid: result.user.uid,
-        email: result.user.email,
-        admin: result.claims.admin === true,
-      });
       router.replace(nextPath);
     } catch (signInError) {
       setError(signInError instanceof Error ? signInError.message : "Unable to sign in.");
@@ -51,13 +47,13 @@ export default function AdminLoginPage() {
           <br />
           <i>control room.</i>
         </h1>
-        <p>Use the Firebase administrator account configured for this auction.</p>
+        <p>Use the administrator account configured for this auction.</p>
 
         <form className="form-panel" onSubmit={handleSubmit}>
           <div className="form-grid">
             <label className="full-field">
-              Email
-              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+              User ID
+              <input value={userId} onChange={(event) => setUserId(event.target.value)} autoComplete="username" required />
             </label>
             <label className="full-field">
               Password
@@ -74,7 +70,7 @@ export default function AdminLoginPage() {
       </div>
 
       <div className="landing-foot">
-        <span>FIREBASE AUTHENTICATION</span>
+        <span>MONGODB ADMIN AUTHENTICATION</span>
         <span>Admin access only</span>
       </div>
     </main>

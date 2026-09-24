@@ -23,7 +23,6 @@
 # misc
 .DS_Store
 *.pem
-firebase-service-account*.json
 service-account*.json
 
 # debug
@@ -35,9 +34,6 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
-
-# Firebase local emulator data
-/.firebase/
 
 # vercel
 .vercel

@@ -1,6 +1,7 @@
-import type { Timestamp } from "firebase/firestore";
+export type DatabaseDate = Date;
 
 export type FirestorePlayerStatus = "available" | "on_auction" | "sold" | "unsold";
+export type PlayerGender = "male" | "female";
 export type FirestoreAuctionStatus = "upcoming" | "live" | "paused" | "completed";
 export type UserRole = "admin" | "viewer";
 
@@ -11,6 +12,7 @@ export interface Player {
   fullName?: string;
   category: string;
   role: string;
+  gender?: PlayerGender;
   age?: number;
   dateOfBirth?: string;
   wingFlatNumber?: string;
@@ -30,8 +32,8 @@ export interface Player {
   initials?: string;
   accent?: string;
   instagramId?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  createdAt: DatabaseDate;
+  updatedAt: DatabaseDate;
 }
 
 export interface Team {
@@ -48,8 +50,8 @@ export interface Team {
   squadSize: number;
   status?: "Active" | "Complete";
   playerIds?: string[];
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  createdAt: DatabaseDate;
+  updatedAt: DatabaseDate;
 }
 
 export interface Auction {
@@ -68,10 +70,10 @@ export interface Auction {
   totalPlayers?: number;
   soldPlayers?: number;
   unsoldPlayers?: number;
-  startedAt?: Timestamp;
-  endedAt?: Timestamp;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  startedAt?: DatabaseDate;
+  endedAt?: DatabaseDate;
+  createdAt: DatabaseDate;
+  updatedAt: DatabaseDate;
 }
 
 export interface AuctionResult {
@@ -83,7 +85,7 @@ export interface AuctionResult {
   teamName?: string;
   soldPrice?: number;
   status: "sold" | "unsold";
-  timestamp: Timestamp;
+  timestamp: DatabaseDate;
 }
 
 export interface User {
@@ -91,7 +93,7 @@ export interface User {
   email: string;
   displayName?: string;
   role: UserRole;
-  createdAt: Timestamp;
+  createdAt: DatabaseDate;
 }
 
 export interface AuctionSettings {
@@ -102,7 +104,7 @@ export interface AuctionSettings {
   minimumSquadSize: number;
   maximumSquadSize: number;
   auctionStatus: FirestoreAuctionStatus;
-  updatedAt: Timestamp;
+  updatedAt: DatabaseDate;
 }
 
 export type PlayerInput = Omit<Player, "id" | "createdAt" | "updatedAt"> & {
