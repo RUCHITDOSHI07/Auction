@@ -13,7 +13,6 @@ function AdminAuctionContent() {
   const gender = searchParams.get("gender");
   const [checkingConfig, setCheckingConfig] = useState(true);
   const [configured, setConfigured] = useState(false);
-
   useEffect(() => {
     let cancelled = false;
     async function checkConfiguration() {
@@ -46,9 +45,6 @@ function AdminAuctionContent() {
 
   const activePlayer = getPlayer("dev-patel");
   const winningTeam = getTeam("city-lions");
-  const [bid, setBid] = useState(55);
-  const [status, setStatus] = useState<"LIVE" | "SOLD" | "UNSOLD">("LIVE");
-
   return (
     <AdminShell>
       <div className="content-wrap auction-room">
