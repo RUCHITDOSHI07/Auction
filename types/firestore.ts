@@ -108,7 +108,8 @@ export interface AuctionSettings {
 }
 
 export type PlayerInput = Omit<Player, "id" | "createdAt" | "updatedAt"> & {
-  id?: string;
+  id?: never;
+  playerCode?: never;
 };
 export type TeamInput = Omit<Team, "id" | "createdAt" | "updatedAt"> & { id?: string };
 export type AuctionInput = Omit<Auction, "id" | "createdAt" | "updatedAt"> & { id?: string };

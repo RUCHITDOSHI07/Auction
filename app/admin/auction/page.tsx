@@ -1,11 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import AdminShell from "@/components/admin/AdminShell";
 import { getPlayer, getTeam, players, teams } from "@/mock/data";
 import { PageHeader, SectionHeading, StatusBadge } from "@/components/ui/Primitives";
 
 export default function AdminAuctionPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tournamentId = searchParams.get("tournamentId");
+  const gender = searchParams.get("gender");
+  const [checkingConfig, setCheckingConfig] = useState(true);
+  const [configured, setConfigured] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkConfiguration() {
+      if (!tournamentId || (gender !== "male" && gender !== "female")) {
+        router.replace("/admin/tournaments");
+        return;
+      }
+      try {
+        const response = await fetch(`/api/auction-config?tournamentId=${encodeURIComponent(tournamentId)}&gender=${gender}`);
+        const data = await response.json() as { config?: unknown; error?: string };
+        if (!response.ok || !data.config) {
+          if (!cancelled) router.replace(`/admin/tournaments/${tournamentId}/auction-config?gender=${gender}`);
+          return;
+        }
+        if (!cancelled) {
+          setConfigured(true);
+          setCheckingConfig(false);
+        }
+      } catch {
+        if (!cancelled) router.replace(`/admin/tournaments/${tournamentId}/auction-config?gender=${gender}`);
+      }
+    }
+    void checkConfiguration();
+    return () => { cancelled = true; };
+  }, [gender, router, tournamentId]);
+
+  if (checkingConfig || !configured) {
+    return <AdminShell><div className="content-wrap"><div className="panel"><p>Checking auction configuration...</p></div></div></AdminShell>;
+  }
+
   const activePlayer = getPlayer("dev-patel");
   const winningTeam = getTeam("city-lions");
   const [bid, setBid] = useState(55);
