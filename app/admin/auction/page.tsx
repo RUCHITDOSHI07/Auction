@@ -39,7 +39,8 @@ function AdminAuctionContent() {
     return () => { cancelled = true; };
   }, [gender, router, tournamentId]);
 
-  const [bid, setBid] = useState(55);\n  const [status, setStatus] = useState<"LIVE" | "SOLD" | "UNSOLD">("LIVE");\n\n  if (checkingConfig || !configured) {
+  const [bid, setBid] = useState(55);  const [status, setStatus] = useState<"LIVE" | "SOLD" | "UNSOLD">("LIVE");
+  if (checkingConfig || !configured) {
     return <AdminShell><div className="content-wrap"><div className="panel"><p>Checking auction configuration...</p></div></div></AdminShell>;
   }
 
