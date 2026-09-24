@@ -11,45 +11,52 @@ The platform has exactly two operational experiences:
 
 There are **NO team logins**, **NO team accounts**, and **NO public bidding**.
 
-The admin prepares the complete tournament and auction data before auction day. The auction can be started later, paused, resumed, and completed over multiple sessions.
+The admin prepares tournament and auction data before auction day. Auctions can be started later, paused, resumed, and completed over multiple sessions.
 
-The public display must change only when the admin changes/saves the auction state.
+The public display changes only from successfully persisted auction state.
 
 ---
 
 # 2. Core Principles
 
-- Admin is the only person who can modify data.
+- Admin is the only person who can modify application data.
 - Public viewers are strictly read-only.
-- Never depend on frontend-only security. Firestore security rules must enforce permissions.
-- Firestore is the source of truth.
+- Never depend on frontend-only security.
+- **MongoDB Atlas is the source of truth for application data.**
+- **Google Drive is the external file/photo store.**
+- Player photos/files must not be stored as binary data inside MongoDB.
 - Auction state must persist so the admin can close the browser and continue later.
-- Men’s and women’s auctions are completely independent.
-- Never mix players, teams, purse, transactions, rounds, or state between men and women.
+- Men's and women's competitions are completely independent.
+- Never mix players, teams, purse, transactions, rounds, or state between men's and women's competitions.
 - Use reusable components and services; do not duplicate auction logic for men and women.
 - Financial calculations must be deterministic and testable.
-- SOLD operations must be atomic.
-- Undo must safely reverse a completed auction transaction.
+- SOLD operations must be atomic/safely idempotent.
 - Maximum Bid is informational only. It must never automatically block the admin from entering a higher bid.
 - Public display must not contain mutation controls.
+- Preserve existing player data during migrations. Never delete or recreate player records merely to change architecture.
 
 ---
 
-# 3. Recommended Technology
+# 3. Technology
 
 Use:
 
-- Next.js with App Router
+- Next.js App Router
 - TypeScript
 - React
 - Tailwind CSS
-- Firebase Authentication
-- Cloud Firestore
-- Firebase Storage for player/team images
+- MongoDB Atlas
+- MongoDB Node.js driver
+- bcryptjs for admin password hashing
+- HTTP-only MongoDB-backed admin sessions
+- Google Drive for player/team photos and other externally stored files
 - Vercel for hosting
-- Firestore real-time listeners for live synchronization
 
-Do not introduce Socket.IO unless there is a demonstrated need.
+The current repository already contains a MongoDB connection, admin authentication/session implementation, and player service. Reuse these where appropriate.
+
+Do **not** introduce Firebase Authentication, Cloud Firestore, Firebase Storage, or Firebase real-time listeners.
+
+Do not introduce Socket.IO unless there is a demonstrated requirement.
 
 ---
 
@@ -63,7 +70,7 @@ Admin can:
 - Edit tournament setup
 - Add/edit/delete teams
 - Add/edit/delete players
-- Upload images
+- Manage player photos/files
 - Configure men's and women's auctions
 - Arrange player auction order
 - Preview and mark auctions ready
@@ -76,6 +83,7 @@ Admin can:
 - Start subsequent rounds
 - View history
 - View results
+- Import/export Excel data
 
 ## Public Viewer
 
@@ -101,81 +109,241 @@ Public viewers cannot:
 - Modify purse
 - Modify team information
 - Modify player information
-- Write to Firestore
+- Write application data
 
 ---
 
-# 5. Tournament Lifecycle
+# 5. Authentication and Authorization
 
-A tournament contains independent men's and women's auctions.
+Admin authentication is application-owned and MongoDB-backed.
 
-Suggested statuses:
+Current repository architecture:
 
-- NOT_STARTED
-- READY
-- IN_PROGRESS
-- PAUSED
-- COMPLETED
+`admins`
+- userId
+- passwordHash
+- name
+- role
 
-A tournament may be prepared days/weeks before the event.
+`adminSessions`
+- tokenHash
+- userId
+- expiresAt
+- createdAt
+- updatedAt
 
-The admin can:
+The browser receives an HTTP-only session cookie. Server-side APIs/pages use the session to authorize admin operations.
 
-1. Create tournament.
-2. Configure men's auction.
-3. Configure women's auction.
-4. Add teams.
-5. Add players.
-6. Set base prices.
-7. Set auction order.
-8. Preview.
-9. Mark auction READY.
-10. Leave the application.
-11. Return on auction day.
-12. Start the required auction.
+Rules:
+
+- Never put admin passwords or password hashes in client code.
+- Never use client-side checks as the only authorization mechanism.
+- Critical mutations must verify the admin session server-side.
+- Public routes must not receive admin mutation credentials.
+- Do not introduce team authentication.
 
 ---
 
-# 6. Tournament Setup
+# 6. Tournament Model
 
-Tournament fields:
+A tournament is the long-lived container for one PNPL edition.
+
+Suggested fields:
 
 - tournamentId
 - name
-- logo
+- year
+- logo/reference if applicable
 - description
-- createdAt
-- updatedAt
-
-Each auction should have its own configuration:
-
-- auctionId
-- tournamentId
-- type: "men" | "women"
-- startingPurse
-- squadSize
-- minimumSquadSize (optional if required)
-- bidIncrement
 - status
-- currentRound
-- currentPlayerId
 - createdAt
 - updatedAt
 
-Men's and women's configurations must be independent.
+A tournament contains two independent competitions:
+
+```
+Tournament
+├── Men's Competition
+│   ├── Teams
+│   ├── Players
+│   ├── Auction
+│   └── Results
+└── Women's Competition
+    ├── Teams
+    ├── Players
+    ├── Auction
+    └── Results
+```
+
+Men's and women's teams are different records. They are never shared automatically.
+
+Every tournament-specific entity must be associated with the correct `tournamentId` and competition/gender.
 
 ---
 
-# 7. Team Management
+# 7. Competition / Gender Isolation
+
+Gender separation is a **backend/data rule**, not just a UI filter.
+
+Every relevant tournament record should carry enough information to validate:
+
+- tournamentId
+- gender/competition
+- related auctionId where applicable
+
+The server must reject invalid relationships such as:
+
+- male auction + female player
+- male auction + female team
+- PNPL 2027 auction + PNPL 2026 tournament record
+- women's result attached to a men's auction
+
+The UI may reuse components, but the data and API boundaries must remain isolated.
+
+---
+
+# 8. Permanent Player Identity
+
+Players have a permanent system-generated Player ID.
+
+The Player ID is generated when a player is first created/imported into the master player collection.
+
+Example:
+
+```
+P001 — Vandit Vipul Savla
+P002 — Rahul Shah
+P003 — Priya Patel
+```
+
+The normal player Excel import must **not require the user to provide a Player ID**.
+
+The system generates the next permanent ID and stores it with the master player.
+
+Once assigned, a Player ID must never change.
+
+A player's master identity can participate in multiple tournaments:
+
+```
+P001
+├── PNPL 2025
+├── PNPL 2026
+└── PNPL 2027
+```
+
+Do not identify historical records by player name alone.
+
+Existing player records must be migrated safely. Do not delete the existing player collection or reset player data as part of architectural migration.
+
+---
+
+# 9. Player Master Data
+
+The `players` collection is the master player identity/profile store.
+
+Typical fields:
+
+- id / playerId
+- name / fullName
+- gender
+- age
+- dateOfBirth
+- wingFlatNumber
+- phoneNumber
+- role
+- battingStyle
+- bowlingStyle
+- batting
+- bowling
+- instagramId
+- playedCricket
+- photoFileId
+- photoUrl or derived public/display URL when appropriate
+- category
+- basePrice when used by the current tournament workflow
+- createdAt
+- updatedAt
+
+Do not add tournament-specific sale state directly to the permanent master identity when that state belongs to a particular auction.
+
+Tournament-specific information belongs in tournament/auction/history records.
+
+---
+
+# 10. Player Excel Import
+
+The normal player master Excel import may contain fields such as:
+
+- Full Name
+- Gender
+- Age
+- Date of Birth
+- Wing - Flat Number
+- Phone Number
+- Upload Your Recent Photo
+- Have you played cricket before?
+- Role
+- Batting Preference
+- Bowling Preference
+- Insta-id
+- Category
+- Base Price when applicable
+
+Player ID is generated by the application.
+
+The importer must:
+
+- validate required fields
+- normalize gender
+- avoid duplicate master players where a safe matching strategy exists
+- preserve existing Player IDs
+- never silently replace an existing player with a newly generated ID
+- report inserted/updated/unchanged rows
+- preserve existing data during migration
+- support photo/file references without storing binary files in MongoDB
+
+The exact player deduplication/matching strategy must be designed before changing existing production player records.
+
+---
+
+# 11. Google Drive File Storage
+
+Google Drive is the external store for player photos and other files that should not live in MongoDB.
+
+Preferred flow:
+
+```
+Player Excel
+   ↓
+Photo/file reference
+   ↓
+Google Drive
+   ↓
+photoFileId / file reference
+   ↓
+MongoDB player record
+```
+
+MongoDB stores metadata/reference, not image binary content.
+
+Google Drive integration should be introduced as a separate service layer so UI components do not directly contain Drive API logic.
+
+Do not redesign the existing player UI merely to introduce Drive storage.
+
+---
+
+# 12. Team Management
 
 Teams are entered by the admin before the auction.
 
-Team fields:
+Team fields may include:
 
 - teamId
+- tournamentId
 - auctionId
+- gender
 - name
-- logo
+- logoFileId / logoUrl
 - startingPurse
 - squadSize
 - createdAt
@@ -193,87 +361,80 @@ Current purse and squad count should be derived from canonical purchase/transact
 
 ---
 
-# 8. Player Management
+# 13. Auction Configuration
 
-Player fields:
+Each auction is tied to exactly one tournament and competition.
 
-- playerId
+Suggested fields:
+
 - auctionId
-- name
-- photoUrl
-- age
-- role
-- battingStyle
-- bowlingStyle
-- basePrice
-- auctionOrder
+- tournamentId
+- gender
+- startingPurse
+- squadSize
+- minimumSquadSize when required
+- bidIncrement
 - status
-- soldToTeamId (nullable)
-- soldPrice (nullable)
-- soldRound (nullable)
+- currentRound
+- currentPlayerId
+- currentBid
+- highestTeamId
 - createdAt
 - updatedAt
 
-Player statuses:
+Suggested statuses:
 
-- AVAILABLE
-- ON_AUCTION
-- SOLD
-- UNSOLD
+- UPCOMING
+- READY
+- LIVE
+- PAUSED
+- COMPLETED
 
-Admin must be able to:
-
-- Add
-- Edit
-- Delete
-- Search
-- Filter
-- Sort
-- Reorder
-
-Player images should be stored in Firebase Storage, with the URL/reference saved in Firestore.
+Men's and women's auction configurations are independent.
 
 ---
 
-# 9. Auction Order
+# 14. Auction Order
 
-The admin must be able to configure the player order before auction day.
+The admin must be able to configure player order before auction day.
 
 Required functionality:
 
-- Display numbered order
-- Drag/drop or equivalent reorder interaction
-- Move up/down fallback
-- Save order
+- display numbered order
+- reorder interaction
+- move up/down fallback
+- save order
 
 Auction order is independent for men's and women's auctions.
 
 ---
 
-# 10. Auction Preview / Ready State
+# 15. Auction Preview / Ready State
 
 Before an auction is live, show a validation/preview screen.
 
 Validate:
 
-- Teams exist
-- Players exist
-- Starting purse configured
-- Squad size configured
-- Bid increment configured
-- Auction order is valid
-- Required player/team information exists
+- correct tournament
+- correct competition/gender
+- teams exist
+- players exist
+- starting purse configured
+- squad size configured
+- bid increment configured
+- auction order is valid
+- required player/team information exists
 
 Allow:
 
 - EDIT
 - MARK READY / LOCK
 
-Do not allow unsafe setup changes while an auction is IN_PROGRESS unless explicitly designed as an admin correction workflow.
+Do not allow unsafe setup changes while an auction is LIVE unless explicitly designed as an admin correction workflow.
 
 ---
 
-# 11. Admin Live Auction
+# 16. Admin Live Auction
 
 The admin auction screen should contain:
 
@@ -308,19 +469,17 @@ Controls:
 - RESUME
 - NEXT PLAYER
 
-The exact bid increment may be configurable per auction.
-
-The admin remains the source of bidding truth. The application is not an automated multi-user bidding platform.
+The admin remains the source of bidding truth. This is not an automated multi-user bidding platform.
 
 ---
 
-# 12. Bid Validation
+# 17. Bid Validation
 
 At minimum:
 
 - Current bid cannot be below base price.
 - A new bid should normally be >= current bid + configured increment when using increment controls.
-- Custom bid should be validated according to the configured auction rules.
+- Custom bid must be validated according to configured auction rules.
 - Highest team is required before SOLD.
 - SOLD price must equal the saved current bid.
 - Do not allow SOLD twice for the same player.
@@ -329,21 +488,21 @@ At minimum:
 
 ---
 
-# 13. Maximum Bid Engine
+# 18. Maximum Bid Engine
 
 Maximum Bid is a display/strategy aid.
 
 For each team:
 
-currentPurse = startingPurse - total completed purchase spend
+`currentPurse = startingPurse - totalCompletedPurchaseSpend`
 
-playersPurchased = count of SOLD players for that team
+`playersPurchased = count(SOLD players for team)`
 
-playersNeeded = squadSize - playersPurchased
+`playersNeeded = squadSize - playersPurchased`
 
-minimumReserve = sum of the base prices of the cheapest eligible remaining players needed to fill the squad
+`minimumReserve = sum(base prices of the cheapest eligible remaining players needed to fill the squad)`
 
-maximumBid = max(0, currentPurse - minimumReserve)
+`maximumBid = max(0, currentPurse - minimumReserve)`
 
 Important:
 
@@ -354,15 +513,13 @@ Important:
 - Do not let a frontend-only cached number become the source of truth.
 - Put the calculation in a pure, unit-testable TypeScript function.
 
-Define "eligible remaining players" consistently. Prefer a central calculation function/configuration so the rule can be changed without rewriting UI code.
-
-Unsold players that will return in future rounds should be considered consistently according to the chosen auction rule. Do not silently change the interpretation between rounds.
+Unsold players returning in later rounds must be handled consistently according to the chosen auction rules.
 
 ---
 
-# 14. SOLD Operation
+# 19. SOLD Operation
 
-SOLD must be treated as a critical atomic operation.
+SOLD is a critical mutation.
 
 When admin clicks SOLD:
 
@@ -370,41 +527,40 @@ When admin clicks SOLD:
 2. Validate current player.
 3. Validate selected highest team.
 4. Validate current bid.
-5. Mark player SOLD.
-6. Save soldToTeamId.
-7. Save soldPrice.
-8. Save soldRound.
-9. Create a transaction/history record.
-10. Update/persist auction state.
-11. Ensure the operation cannot be accidentally executed twice.
-12. Recalculate team-derived values for UI.
+5. Validate tournament and gender relationships.
+6. Mark the tournament/auction player as SOLD.
+7. Save soldToTeamId.
+8. Save soldPrice.
+9. Save soldRound.
+10. Create a canonical transaction/history record.
+11. Persist auction state.
+12. Prevent accidental duplicate execution.
+13. Recalculate derived team values for the UI.
 
-Use Firestore transactions/batches where appropriate.
+Use MongoDB atomic operations/transactions where appropriate.
 
 The database must retain enough canonical data to reconstruct results.
 
 ---
 
-# 15. UNSOLD Operation
+# 20. UNSOLD Operation
 
 When admin clicks UNSOLD:
 
-- Mark player UNSOLD.
+- Mark the auction player UNSOLD.
 - Save round.
 - Do not delete the player.
 - Do not create a purchase transaction.
-- Make the player eligible for later rounds according to the round rules.
+- Make the player eligible for later rounds according to the rules.
 - Save auction history/state.
 
 ---
 
-# 16. Rounds
+# 21. Rounds
 
 Round 1 includes the initial auction pool.
 
-After all players in the current round have been processed:
-
-Show:
+After all players in the current round have been processed, show:
 
 - Round number
 - Total players
@@ -413,77 +569,62 @@ Show:
 
 Example:
 
-"ROUND 1 COMPLETE — 48 Players — 35 Sold — 13 Unsold"
+`ROUND 1 COMPLETE — 48 Players — 35 Sold — 13 Unsold`
 
-Admin manually clicks:
+Admin explicitly starts the next round.
 
-START ROUND 2
+Unsold players return to the eligible pool according to the auction rules.
 
-Unsold players return to the eligible auction pool.
-
-Repeat for Round 3 or more as required.
-
-Never automatically jump into the next round without an explicit admin action.
+Never automatically jump into the next round without explicit admin action.
 
 ---
 
-# 17. Pause / Resume / Persistence
+# 22. Pause / Resume / Persistence
 
 At any point during an auction, admin can pause.
 
-On pause:
+On pause, persist:
 
-- Persist current auction state.
-- Preserve current player.
-- Preserve current bid.
-- Preserve highest team.
-- Preserve round.
-- Preserve history.
-- Preserve all completed transactions.
+- current player
+- current bid
+- highest team
+- round
+- auction status
+- completed transactions
+- history
 
-After closing/reopening the browser, the admin can resume.
+After closing/reopening the browser, the admin must be able to resume from persisted MongoDB state.
 
-The system must never rely only on React state for auction persistence.
+Never rely only on React state for auction persistence.
 
 ---
 
-# 18. Undo
+# 23. Undo
 
 Provide a safe Undo workflow for accidental actions.
 
-Undo should reverse the relevant canonical operation, for example:
+Undo may reverse a recent canonical operation such as:
 
-- Reverse player SOLD status
-- Reverse team purchase
-- Restore purse derived from transactions
-- Restore squad derived from transactions
-- Restore auction state
-- Restore maximum bid calculation
+- player SOLD status
+- team purchase
+- derived purse/squad state
+- auction state
 
-Prefer an append-only history/event approach where practical instead of destructive history deletion.
+Prefer append-only history/event records where practical instead of destructive history deletion.
 
-Define clearly what actions are undoable and prevent unsafe undo of unrelated historical transactions.
+Define clearly which actions are undoable and prevent unsafe undo of unrelated historical transactions.
 
 ---
 
-# 19. Public Live Viewer
+# 24. Public Live Viewer
 
-Create public read-only routes such as:
+Public routes should follow the tournament/competition structure, for example:
 
 - /live/[tournamentId]
 - /live/[tournamentId]/men
 - /live/[tournamentId]/women
 
-The public viewer must be mobile-first.
-
-It should work on:
-
-- iPhone
-- Android
-- Tablet
-- Laptop
-- TV
-- Projector
+The viewer is read-only and mobile-first.
 
 Show:
 
@@ -495,7 +636,7 @@ Show:
 - Base price
 - Current bid
 - Highest team
-- Team purse
+- Team status
 - Squad count
 - Players needed
 - Maximum Bid if intended for public viewing
@@ -504,121 +645,21 @@ Show:
 
 Do not show admin controls.
 
-Do not expose sensitive admin information.
+Do not expose private admin data.
 
 ---
 
-# 20. Public Mobile UX
+# 25. Live Synchronization
 
-The mobile viewer should be intentionally designed for phones, not merely desktop-responsive.
+MongoDB is the source of truth.
 
-Recommended structure:
+The first implementation should prefer simple, reliable server/API polling or refresh behavior unless a later requirement justifies a dedicated real-time transport.
 
-1. Tournament header
-2. LIVE indicator
-3. Current player card
-4. Current bid
-5. Highest team
-6. Team status list/cards
-7. Auction/round status
+Do not add Socket.IO merely because the old Firebase design used real-time listeners.
 
-Large numbers and readable typography are important because users may watch from a distance or while moving.
+If a real-time transport is later required, isolate it from the auction domain/service layer.
 
----
-
-# 21. Projector / Large Display UX
-
-Provide a display-friendly layout.
-
-Use:
-
-- Large player image
-- Large player name
-- Large current bid
-- Highest team prominently displayed
-- Team status table
-- High readability
-- Full-screen friendly layout
-
-The same public route can be responsive, or a dedicated display route can be created if needed.
-
----
-
-# 22. Real-Time Synchronization
-
-Firestore real-time listeners should power the live display.
-
-Flow:
-
-Admin UI
-→ Firestore
-→ real-time listener
-→ Public viewer / projector
-
-Public viewers do not submit auction actions.
-
-If admin changes the current bid, public screens update.
-
-If admin clicks SOLD, public screens update.
-
-If admin clicks UNSOLD, public screens update.
-
-If admin pauses, public screens update.
-
-Avoid optimistic public changes that can display a state which was never successfully committed to Firestore.
-
----
-
-# 23. Public Access & Security
-
-Public live data can be readable without login if required.
-
-Firestore security rules must enforce:
-
-- Admin authenticated user: permitted writes according to admin authorization.
-- Public viewer: read-only access to explicitly public auction data.
-- Public viewer: no writes.
-- Public viewer: no access to private/admin-only data.
-
-Never rely only on hiding buttons.
-
-For admin authorization, use Firebase Authentication plus a secure admin authorization mechanism (for example, a controlled allowlist or custom claims). Do not hardcode a secret admin password into client-side code.
-
----
-
-# 24. QR Code / Sharing
-
-Generate a public live URL for each tournament/auction.
-
-Example concept:
-
-/live/{tournamentId}
-
-Provide:
-
-- Copy link
-- QR code display
-- QR code download/print option if practical
-
-Users should be able to scan the QR code and immediately watch.
-
----
-
-# 25. Public Landing Page
-
-A tournament public page may show:
-
-Tournament name
-
-Men's Auction:
-- NOT STARTED / LIVE / PAUSED / COMPLETED
-- Watch Live when available
-
-Women's Auction:
-- NOT STARTED / LIVE / PAUSED / COMPLETED
-- Watch Live when available
-
-This avoids requiring users to know separate URLs.
+Public screens must never display an optimistic state that was not successfully persisted.
 
 ---
 
@@ -657,9 +698,7 @@ Men's and women's results remain separate.
 
 # 27. Auction History
 
-Record meaningful actions.
-
-Examples:
+Record meaningful actions, such as:
 
 - Auction started
 - Auction paused
@@ -672,145 +711,235 @@ Examples:
 - Round started
 - Undo performed
 
-For purchase history, retain:
+Purchase history should retain:
 
-- Player
+- Player ID
 - Team
 - Amount
 - Round
 - Timestamp
+- Tournament ID
+- Auction ID
+- Gender
 
 ---
 
-# 28. Data Model
+# 28. Historical Tournament Data
 
-A practical Firestore model can be:
+Previous tournaments are permanent records and must not be deleted when a new tournament is created.
 
-tournaments/{tournamentId}
+Historical player participation/statistics belong in a separate collection such as:
 
-tournaments/{tournamentId}/auctions/{auctionId}
+`playerTournamentHistory`
 
-tournaments/{tournamentId}/auctions/{auctionId}/teams/{teamId}
+Example:
 
-tournaments/{tournamentId}/auctions/{auctionId}/players/{playerId}
+```json
+{
+  "playerId": "P001",
+  "tournamentId": "pnpl-2026",
+  "gender": "male",
+  "teamId": "team-001",
+  "auction": {
+    "status": "sold",
+    "price": 7000
+  },
+  "statistics": {
+    "matches": 8,
+    "runs": 214,
+    "wickets": 6,
+    "catches": 5
+  }
+}
+```
 
-tournaments/{tournamentId}/auctions/{auctionId}/transactions/{transactionId}
+Historical statistics may be incomplete.
 
-tournaments/{tournamentId}/auctions/{auctionId}/history/{historyId}
-
-The auction document contains current state/configuration.
-
-Do not duplicate the entire tournament in multiple places.
-
-Use the auctionId as the main partition between men's and women's data.
-
----
-
-# 29. Suggested Types
-
-Create strong TypeScript types/interfaces for:
-
-- Tournament
-- Auction
-- AuctionType
-- AuctionStatus
-- Team
-- Player
-- PlayerStatus
-- Transaction
-- AuctionState
-- AuctionHistory
-- Bid
-- Round
-
-Avoid `any` for domain data.
-
-Use enums/unions where appropriate.
+Missing information must be represented as unavailable/null, not silently converted to zero.
 
 ---
 
-# 30. Suggested Folder Structure
+# 29. Historical Excel Import
 
-Use a maintainable structure similar to:
+Historical data comes from manually prepared Excel files, based on external sources such as CricClubs.
 
-app/
-  login/
-  dashboard/
-  tournaments/
-    create/
-    [tournamentId]/
-      page.tsx
-      men/
-        teams/
-        players/
-        setup/
-        auction/
-      women/
-        teams/
-        players/
-        setup/
-        auction/
-      results/
-      history/
-  live/
-    [tournamentId]/
-      page.tsx
-      men/
-      women/
+Do not build a direct CricClubs integration unless explicitly requested later.
 
-components/
-  auction/
-  players/
-  teams/
-  display/
-  tournament/
-  ui/
+The historical Excel should use the permanent Player ID so records can be matched reliably.
 
+Example:
+
+```
+Player ID | Player Name | Gender | Team | Auction Price | Matches | Runs | Wickets
+P001      | Vandit...   | Male   | Team A | 7000 | 8 | 214 | 6
+P002      | Rahul...    | Male   | Team B | 5000 | 7 | 180 | 3
+```
+
+The system should validate:
+
+- Player ID exists
+- tournament exists
+- gender matches
+- team belongs to the correct tournament/competition
+- duplicate historical records are handled safely
+
+---
+
+# 30. Excel Export
+
+Post-auction export should support:
+
+- each team and assigned players
+- player details
+- sold price
+- round
+- tournament/competition
+
+Men's and women's exports remain separate.
+
+Optionally provide a combined tournament workbook with separate men's and women's sheets.
+
+---
+
+# 31. MongoDB Collections
+
+The target data model is:
+
+```
+admins
+adminSessions
+
+tournaments
+
+players
+teams
+
+auctions
+auctionTransactions
+auctionHistory
+
+playerTournamentHistory
+
+settings
+```
+
+Collections may be added when justified by a concrete requirement.
+
+Use `tournamentId`, `auctionId`, and `gender`/competition fields to enforce correct ownership and segregation.
+
+Do not store the same canonical purchase data redundantly in multiple collections without a clear reason.
+
+---
+
+# 32. Application Architecture
+
+Use this separation:
+
+```
+Next.js App Router
+        ↓
+Server/API routes
+        ↓
+Authentication + validation
+        ↓
+Domain/service layer
+   ├── tournaments
+   ├── players
+   ├── teams
+   ├── auctions
+   ├── results
+   ├── playerHistory
+   └── googleDrive
+        ↓
+MongoDB Atlas
+        ↓
+Google Drive for files/photos
+```
+
+UI components must not contain database credentials or Google Drive credentials.
+
+Complex auction calculations must not live directly in React components.
+
+---
+
+# 33. Suggested Folder Structure
+
+The existing repository already has working UI folders. Preserve them unless there is a concrete reason to move them.
+
+Target service structure:
+
+```
 lib/
-  firebase/
-    client.ts
-    admin.ts
+  mongodb.ts
+  auth/
+  services/
+    tournaments.ts
+    players.ts
+    teams.ts
+    auctions.ts
+    results.ts
+    playerHistory.ts
   auction/
     calculations.ts
     validation.ts
     operations.ts
-  auth/
   storage/
+    googleDrive.ts
 
 types/
-  auction.ts
   tournament.ts
-  team.ts
   player.ts
+  team.ts
+  auction.ts
+  history.ts
+  admin.ts
+```
 
-tests/
-  auction/
-  calculations/
-
----
-
-# 31. Architecture Rules
-
-Separate:
-
-- UI
-- Firebase data access
-- auction business logic
-- calculations
-- validation
-- types
-
-Do not put complex auction calculations directly inside React components.
-
-Do not duplicate SOLD logic between men's and women's pages.
-
-Build reusable auction services/functions.
-
-Prefer server-side/secure operations for critical mutations where appropriate.
+Firebase-specific folder structures should not be introduced.
 
 ---
 
-# 32. Testing Requirements
+# 34. Environment Variables
+
+Server-only secrets must remain server-side.
+
+Expected variables may include:
+
+```
+MONGODB_URI=...
+GOOGLE_DRIVE_CLIENT_ID=...
+GOOGLE_DRIVE_CLIENT_SECRET=...
+GOOGLE_DRIVE_REFRESH_TOKEN=...
+GOOGLE_DRIVE_FOLDER_ID=...
+```
+
+Only add Google Drive variables when the integration is implemented.
+
+Never expose MongoDB or Google Drive server credentials through NEXT_PUBLIC_* variables.
+
+Do not commit `.env` files or secrets.
+
+---
+
+# 35. Existing Repository Migration Rules
+
+The repository already contains MongoDB-backed player/admin functionality.
+
+During migration:
+
+- Reuse working MongoDB code.
+- Do not delete the existing `players` collection.
+- Do not delete existing player records.
+- Do not reset or re-import the 47 existing players merely to change architecture.
+- Do not redesign the existing UI as part of the architecture migration.
+- Do not change player IDs until the dedicated Player ID migration phase.
+- Do not introduce Firebase dependencies.
+- Firebase-era files may remain temporarily if they are not referenced, but they must be clearly marked as legacy/deprecated and must not be used by new code.
+- Remove obsolete Firebase files only after verifying they have no imports/references and only as a deliberate cleanup step.
+
+---
+
+# 36. Testing Requirements
 
 Write unit tests for:
 
@@ -823,6 +952,9 @@ Write unit tests for:
 - Round transitions
 - Undo behavior
 - Bid increment logic
+- tournament/gender relationship validation
+- Player ID generation when that phase is implemented
+- historical import validation when that phase is implemented
 
 Test edge cases:
 
@@ -837,37 +969,36 @@ Test edge cases:
 - All players unsold
 - Repeated SOLD click
 - Browser refresh during auction
+- Wrong gender
+- Wrong tournament
+- Missing historical statistics
 
 ---
 
-# 33. Deployment
+# 37. Deployment
 
 Target:
 
 - GitHub repository
 - Vercel deployment
-- Firebase production project
-- Firestore
-- Firebase Storage
-- Firebase Authentication
-
-Environment variables must never expose server-only secrets to the browser.
+- MongoDB Atlas
+- Google Drive
 
 Before production:
 
-- Configure Firestore rules
-- Configure Storage rules
-- Configure admin authorization
+- Configure MongoDB connection securely
+- Configure admin authentication/session handling
+- Configure Google Drive credentials securely
 - Test public read-only access
 - Test admin writes
 - Test on mobile
 - Test on projector/TV
-- Test multiple simultaneous public viewers
+- Test multiple public viewers if real-time delivery is introduced
 - Test disconnect/reconnect behavior
 
 ---
 
-# 34. Important Non-Goals
+# 38. Important Non-Goals
 
 Do NOT build:
 
@@ -880,44 +1011,47 @@ Do NOT build:
 - Chat
 - Team-side controls
 - Complicated multi-role permissions unless later requested
+- Direct CricClubs integration unless explicitly requested
 
 Keep the product focused on admin-controlled live auction management.
 
 ---
 
-# 35. Definition of Done
+# 39. Definition of Done
 
 The application is considered complete when:
 
 1. Admin can create a tournament.
-2. Admin can configure men's and women's auctions separately.
+2. Admin can configure men's and women's competitions separately.
 3. Admin can add teams beforehand.
 4. Admin can add players and images beforehand.
-5. Admin can configure auction order.
-6. Admin can save everything and return later.
-7. Admin can preview and mark auctions ready.
-8. Admin can start an auction later.
-9. Admin can conduct live bidding.
-10. Admin can mark SOLD/UNSOLD.
-11. Purse/squad/max-bid update correctly.
-12. Unsold players return in later rounds.
-13. Admin can pause and resume.
-14. Safe undo exists.
-15. Auction state survives browser close/reopen.
-16. Public users can open a live URL without login.
-17. Public users cannot modify anything.
-18. Public viewers update in real time.
-19. Mobile view is polished.
-20. Projector view is readable.
-21. QR/share functionality works.
+5. Permanent Player IDs are generated and preserved.
+6. Admin can configure auction order.
+7. Admin can save everything and return later.
+8. Admin can preview and mark auctions ready.
+9. Admin can start an auction later.
+10. Admin can conduct live bidding.
+11. Admin can mark SOLD/UNSOLD.
+12. Purse/squad/max-bid update correctly.
+13. Unsold players return in later rounds.
+14. Admin can pause and resume.
+15. Safe undo exists.
+16. Auction state survives browser close/reopen.
+17. Public users can open a live URL without login.
+18. Public users cannot modify anything.
+19. Public viewers receive persisted auction state.
+20. Mobile view is polished.
+21. Projector view is readable.
 22. Results and history work.
-23. Firestore security rules enforce read/write boundaries.
-24. Critical business logic has automated tests.
-25. Application is deployed and usable online.
+23. Historical tournament data can be imported using Player IDs.
+24. Player/team photos can be stored through Google Drive.
+25. Results can be exported to Excel.
+26. Critical business logic has automated tests.
+27. Application is deployed and usable online.
 
 ---
 
-# 36. Implementation Philosophy
+# 40. Implementation Philosophy
 
 Build incrementally.
 
@@ -928,7 +1062,7 @@ For each phase:
 1. Inspect the existing repository.
 2. Identify what already exists.
 3. Make a small coherent change.
-4. Run type checks/lint/tests.
+4. Run typecheck/lint/tests.
 5. Fix errors.
 6. Explain what changed.
 7. Move to the next phase only after the current phase is stable.
@@ -939,4 +1073,4 @@ Before introducing a new dependency, check whether the existing stack already pr
 
 If a requirement is ambiguous, choose the simplest architecture consistent with this specification and clearly state the assumption before implementing it.
 
-The specification is the source of truth unless the user explicitly changes a requirement.
+This specification is the source of truth unless the user explicitly changes a requirement.
