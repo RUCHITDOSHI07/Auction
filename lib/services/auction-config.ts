@@ -10,11 +10,11 @@ let indexesPromise: Promise<string[]> | undefined;
 
 async function collection(): Promise<Collection<AuctionConfigDocument>> {
   const db = await getMongoDb();
-  return db.collection<AuctionConfigDocument>("auctionConfigs");
+  return db.collection<AuctionConfigDocument>("auctions");
 }
 async function ensureIndexes(c: Collection<AuctionConfigDocument>) {
   indexesPromise ??= Promise.all([
-    c.createIndex({ tournamentId: 1, gender: 1 }, { name: "auction_config_tournament_gender_unique", unique: true }),
+    c.createIndex({ tournamentId: 1, gender: 1 }, { name: "auction_tournament_gender_unique", unique: true }),
   ]);
   await indexesPromise;
 }
