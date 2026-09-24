@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AdminShell from "@/components/admin/AdminShell";
 import { getPlayer, getTeam, players, teams } from "@/mock/data";
 import { PageHeader, SectionHeading, StatusBadge } from "@/components/ui/Primitives";
 
-export default function AdminAuctionPage() {
+function AdminAuctionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");
@@ -40,7 +40,7 @@ export default function AdminAuctionPage() {
     return () => { cancelled = true; };
   }, [gender, router, tournamentId]);
 
-  if (checkingConfig || !configured) {
+  const [bid, setBid] = useState(55);\n  const [status, setStatus] = useState<"LIVE" | "SOLD" | "UNSOLD">("LIVE");\n\n  if (checkingConfig || !configured) {
     return <AdminShell><div className="content-wrap"><div className="panel"><p>Checking auction configuration...</p></div></div></AdminShell>;
   }
 
@@ -149,5 +149,14 @@ export default function AdminAuctionPage() {
         </div>
       </div>
     </AdminShell>
+  );
+}
+
+
+export default function AdminAuctionPage() {
+  return (
+    <Suspense fallback={<AdminShell><div className="content-wrap"><div className="panel"><p>Loading auction room...</p></div></div></AdminShell>}>
+      <AdminAuctionContent />
+    </Suspense>
   );
 }
