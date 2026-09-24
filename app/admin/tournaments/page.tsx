@@ -7,7 +7,7 @@ import { PageHeader, SectionHeading, StatusBadge } from "@/components/ui/Primiti
 import type { Tournament } from "@/types/tournament";
 
 function competitionLabel(tournament: Tournament) {
-  const labels = [];
+  const labels: string[] = [];
   if (tournament.competitions.male.enabled) labels.push("Men's");
   if (tournament.competitions.female.enabled) labels.push("Women's");
   return labels.join(" + ");
@@ -37,43 +37,34 @@ export default function AdminTournamentsPage() {
 
   return (
     <AdminShell>
-      <div className="content-wrap">
+      <div className="content-wrap tournament-content">
         <PageHeader
           eyebrow="TOURNAMENTS"
           title="Tournaments"
           description="Create and manage tournament seasons and their separate men's and women's competitions."
           action={<Link className="button button-dark" href="/admin/tournaments/new">+ New tournament</Link>}
         />
-
         {loading && <div className="panel"><p>Loading tournaments...</p></div>}
-        {!loading && error && (
-          <div className="panel">
-            <p>{error}</p>
-            <button className="button button-dark" type="button" onClick={() => void loadTournaments()}>Retry</button>
-          </div>
-        )}
+        {!loading && error && <div className="panel"><p>{error}</p><button className="button button-dark" type="button" onClick={() => void loadTournaments()}>Retry</button></div>}
         {!loading && !error && tournaments.length === 0 && (
-          <section className="panel">
+          <section className="panel tournament-empty">
             <SectionHeading title="No tournaments yet" />
             <p>Create the first tournament to establish the competition structure before adding teams or running an auction.</p>
             <Link className="button button-dark" href="/admin/tournaments/new">Create tournament</Link>
           </section>
         )}
         {!loading && !error && tournaments.length > 0 && (
-          <div className="team-grid">
+          <div className="tournament-grid">
             {tournaments.map((tournament) => (
-              <article className="team-card" key={tournament.id}>
-                <div className="team-card-top">
-                  <span className="team-logo team-logo-large">{tournament.season}</span>
-                  <div>
-                    <b>{tournament.name}</b>
-                    <small>{competitionLabel(tournament)}</small>
-                  </div>
+              <Link className="tournament-card" href={`/admin/tournaments/${tournament.id}`} key={tournament.id}>
+                <div className="tournament-card-top">
+                  <span className="tournament-season">{tournament.season}</span>
+                  <StatusBadge tone={tournament.status === "active" ? "live" : tournament.status === "completed" ? "success" : "neutral"}>{tournament.status.toUpperCase()}</StatusBadge>
                 </div>
-                <div className="team-card-row"><span>Status</span><StatusBadge tone={tournament.status === "active" ? "live" : tournament.status === "completed" ? "success" : "neutral"}>{tournament.status.toUpperCase()}</StatusBadge></div>
-                <div className="team-card-row"><span>Competitions</span><strong>{competitionLabel(tournament)}</strong></div>
-                {tournament.description && <p>{tournament.description}</p>}
-              </article>
+                <h2>{tournament.name}</h2>
+                <p>{tournament.description || "Tournament setup and competition management."}</p>
+                <div className="tournament-card-meta"><span>{competitionLabel(tournament)}</span><strong>Open tournament →</strong></div>
+              </Link>
             ))}
           </div>
         )}
