@@ -1,0 +1,83 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import AdminShell from "@/components/admin/AdminShell";
+import { PageHeader, SectionHeading, StatusBadge } from "@/components/ui/Primitives";
+import type { Tournament } from "@/types/tournament";
+
+function competitionLabel(tournament: Tournament) {
+  const labels = [];
+  if (tournament.competitions.male.enabled) labels.push("Men's");
+  if (tournament.competitions.female.enabled) labels.push("Women's");
+  return labels.join(" + ");
+}
+
+export default function AdminTournamentsPage() {
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadTournaments = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/tournaments");
+      const result = await response.json() as { tournaments?: Tournament[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Unable to load tournaments.");
+      setTournaments(result.tournaments ?? []);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load tournaments.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadTournaments(); }, [loadTournaments]);
+
+  return (
+    <AdminShell>
+      <div className="content-wrap">
+        <PageHeader
+          eyebrow="TOURNAMENTS"
+          title="Tournaments"
+          description="Create and manage tournament seasons and their separate men's and women's competitions."
+          action={<Link className="button button-dark" href="/admin/tournaments/new">+ New tournament</Link>}
+        />
+
+        {loading && <div className="panel"><p>Loading tournaments...</p></div>}
+        {!loading && error && (
+          <div className="panel">
+            <p>{error}</p>
+            <button className="button button-dark" type="button" onClick={() => void loadTournaments()}>Retry</button>
+          </div>
+        )}
+        {!loading && !error && tournaments.length === 0 && (
+          <section className="panel">
+            <SectionHeading title="No tournaments yet" />
+            <p>Create the first tournament to establish the competition structure before adding teams or running an auction.</p>
+            <Link className="button button-dark" href="/admin/tournaments/new">Create tournament</Link>
+          </section>
+        )}
+        {!loading && !error && tournaments.length > 0 && (
+          <div className="team-grid">
+            {tournaments.map((tournament) => (
+              <article className="team-card" key={tournament.id}>
+                <div className="team-card-top">
+                  <span className="team-logo team-logo-large">{tournament.season}</span>
+                  <div>
+                    <b>{tournament.name}</b>
+                    <small>{competitionLabel(tournament)}</small>
+                  </div>
+                </div>
+                <div className="team-card-row"><span>Status</span><StatusBadge tone={tournament.status === "active" ? "live" : tournament.status === "completed" ? "success" : "neutral"}>{tournament.status.toUpperCase()}</StatusBadge></div>
+                <div className="team-card-row"><span>Competitions</span><strong>{competitionLabel(tournament)}</strong></div>
+                {tournament.description && <p>{tournament.description}</p>}
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </AdminShell>
+  );
+}
