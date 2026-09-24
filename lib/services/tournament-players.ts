@@ -48,7 +48,7 @@ export async function getTournamentPlayers(tournamentId: string, gender?: Compet
   const entries = await c.find(filter).sort({ createdAt: 1 }).toArray();
   const players = await Promise.all(entries.map(async (entry) => {
     const player = await getPlayerById(entry.playerId);
-    return player ? { ...player, tournament: { basePrice: entry.basePrice, status: entry.status, teamId: entry.teamId, soldPrice: entry.soldPrice } } : null;
+    return player ? { ...player, gender: entry.gender, tournament: { basePrice: entry.basePrice, status: entry.status, teamId: entry.teamId, soldPrice: entry.soldPrice } } : null;
   }));
   return players.filter(Boolean);
 }
