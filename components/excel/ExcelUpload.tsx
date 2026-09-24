@@ -248,7 +248,7 @@ export default function ExcelUpload() {
         errors: parsed.reduce((count, item) => count + item.errors.length, 0),
       });
       setMessage(
-        `Processed ${result.processed ?? 0} rows: ${result.inserted ?? 0} new, ${result.updated ?? 0} updated, ${result.unchanged ?? 0} unchanged.${duplicateRows ? ` ${duplicateRows} duplicate rows were upserted.` : ""}`,
+        `Imported ${result.inserted ?? result.processed ?? 0} players.${result.duplicateRows ? ` ${result.duplicateRows} duplicate rows were skipped.` : ""}`,
       );
     } catch (error) {
       setSummary(emptySummary);
