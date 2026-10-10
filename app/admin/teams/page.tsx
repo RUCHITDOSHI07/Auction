@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AdminShell from "@/components/admin/AdminShell";
 import { PageHeader, StatusBadge } from "@/components/ui/Primitives";
@@ -13,7 +13,7 @@ const emptyForm:FormState={name:"",shortName:"",ownerName:"",logoUrl:"",totalBud
 
 function formatMoney(value:number){return `₹${value.toLocaleString("en-IN")}`;}
 
-export default function AdminTeamsPage(){
+function AdminTeamsContent(){
   const searchParams=useSearchParams();
   const tournamentId=searchParams.get("tournamentId")??"";
   const gender=searchParams.get("gender")==="female"?"female":"male";
@@ -96,4 +96,8 @@ export default function AdminTeamsPage(){
     {loading&&<section className="panel"><p>Loading teams...</p></section>}
     {!loading&&teams.length>0&&<section className="team-grid team-grid-modern">{teams.map(team=><article className="team-admin-card" key={team.id}><div className="team-admin-card-top"><div className="team-logo">{team.logoUrl?<img src={team.logoUrl} alt=""/>:team.shortName}</div><StatusBadge tone={team.status==="active"?"success":"neutral"}>{team.status.toUpperCase()}</StatusBadge></div><h2>{team.name}</h2><p>{team.ownerName||"No owner / manager set"}</p><div className="team-admin-metrics"><div><span>Budget</span><strong>{formatMoney(team.remainingBudget)}</strong><small>remaining</small></div><div><span>Squad</span><strong>{team.playersCount}/{team.squadSize}</strong><small>players</small></div></div><div className="tournament-actions"><button className="button button-outline" type="button" onClick={()=>startEdit(team)}>Edit</button><button className="button button-outline" type="button" onClick={async()=>{if(team.playersCount>0){setError("A team with assigned players cannot be deleted.");return;}if(!window.confirm(`Delete ${team.name}?`))return;const response=await fetch(`/api/teams/${encodeURIComponent(team.id)}`,{method:"DELETE"});const result=await response.json() as {error?:string};if(!response.ok){setError(result.error??"Unable to delete team.");return;}setTeams(current=>current.filter(item=>item.id!==team.id));}}>Delete</button></div></article>)}</section>}
   </div></AdminShell>;
+}
+
+export default function AdminTeamsPage(){
+  return <Suspense fallback={<AdminShell><div className="content-wrap"><section className="panel"><p>Loading teams...</p></section></div></AdminShell>}><AdminTeamsContent /></Suspense>;
 }
