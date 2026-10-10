@@ -1,129 +1,46 @@
 import Link from "next/link";
 import AdminShell from "@/components/admin/AdminShell";
-import { activity, teams } from "@/mock/data";
 import { PageHeader, SectionHeading, StatCard, StatusBadge } from "@/components/ui/Primitives";
+import { getCurrentAdmin } from "@/lib/auth/session";
+import { getAdminDashboardSummary } from "@/lib/services/admin-dashboard";
+import { redirect } from "next/navigation";
 
-export default function AdminDashboardPage() {
+export default async function AdminDashboardPage() {
+  const admin = await getCurrentAdmin().catch(() => null);
+  if (!admin) redirect(`/admin/login?next=${encodeURIComponent("/admin")}`);
+  const summary = await getAdminDashboardSummary().catch(() => null);
+  if (!summary) {
+    return <AdminShell><div className="content-wrap"><PageHeader eyebrow="ADMIN OVERVIEW" title="Auction control" description="Tournament and competition status from the persisted workspace." /><section className="panel history-state"><h2>Dashboard data unavailable</h2><p>Could not read the MongoDB tournament summary.</p><Link className="button button-outline" href="/admin/tournaments">Open tournaments</Link></section></div></AdminShell>;
+  }
+
+  const competitionsWithAuctions = summary.competitions.filter((competition) => competition.auction);
   return (
     <AdminShell>
       <div className="content-wrap">
-        <PageHeader
-          eyebrow="FRIDAY · 04 SEPTEMBER 2026"
-          title="Auction control room"
-          description="Everything is in place for the live room, prepared for a seamless public viewing experience."
-          action={
-            <Link className="button button-dark" href="/admin/auction">
-              Enter auction room <span>↗</span>
-            </Link>
-          }
-        />
-
+        <PageHeader eyebrow="ADMIN OVERVIEW" title="Auction control" description="Tournament readiness, separate competition pools, and current auction state." action={<Link className="button button-dark" href="/admin/tournaments/new">New tournament</Link>} />
         <div className="stats-grid">
-          <StatCard label="Teams" value="08" detail="All squads approved" accent="#d9ef75" />
-          <StatCard label="Players" value="120" detail="88 remaining" accent="#8fd7e7" />
-          <StatCard label="Purse pool" value="₹10Cr" detail="Across active teams" accent="#f28b58" />
-          <StatCard label="Sold" value="32" detail="Players completed" accent="#c4b8ed" />
+          <StatCard label="Tournaments" value={String(summary.tournamentCount).padStart(2, "0")} detail="Stored editions" accent="#a7d87a" />
+          <StatCard label="Teams" value={String(summary.teamCount).padStart(2, "0")} detail="Across enabled competitions" accent="#82c6d0" />
+          <StatCard label="Tournament players" value={summary.playerCount.toLocaleString("en-IN")} detail="Competition pool entries" accent="#e99a70" />
+          <StatCard label="Live auctions" value={String(summary.liveAuctionCount).padStart(2, "0")} detail="Persisted live rooms" accent="#b9b0d9" />
         </div>
 
-        <div className="dashboard-grid">
-          <section className="panel">
-            <SectionHeading
-              title="Active auction"
-              action={<Link className="text-link" href="/admin/auction">Open room ↗</Link>}
-            />
-
-            <div className="floor-player">
-              <div className="player-portrait portrait-large" style={{ background: "#e0c18e" }}>
-                DP
-              </div>
-              <div>
-                <span className="eyebrow">CURRENT PLAYER · #05</span>
-                <h2>Dev Patel</h2>
-                <p>Batter · Emerging · Base ₹3L</p>
-                <div className="bid-line">
-                  <span>Current bid</span>
-                  <strong>₹55L</strong>
-                  <StatusBadge tone="live">LIVE</StatusBadge>
-                </div>
-              </div>
-            </div>
+        {summary.tournamentCount === 0 ? <section className="panel dashboard-onboarding"><span className="eyebrow">GET STARTED</span><h2>Create your first tournament</h2><p>Then add separate men’s and women’s teams, import the tournament player pool, and configure each auction.</p><Link className="button button-dark" href="/admin/tournaments/new">Create tournament</Link></section> : <>
+          <section className="dashboard-section">
+            <SectionHeading title="Competitions" action={<Link className="text-link" href="/admin/tournaments">All tournaments →</Link>} />
+            {summary.competitions.length === 0 ? <div className="panel history-state"><h2>No enabled competitions</h2><p>Enable at least one competition in a tournament before configuring teams and players.</p></div> : <div className="competition-dashboard-grid">{summary.competitions.map((competition) => {
+              const auction = competition.auction;
+              const status = auction?.status ?? "not configured";
+              const genderLabel = competition.gender === "male" ? "Men’s" : "Women’s";
+              return <article className="competition-dashboard-card" key={`${competition.tournamentId}-${competition.gender}`}>
+                <div className="competition-dashboard-heading"><div><span className="eyebrow">{genderLabel} · {competition.season}</span><h2>{competition.tournamentName}</h2></div><StatusBadge tone={status === "live" ? "live" : status === "completed" ? "success" : "warning"}>{status.toUpperCase()}</StatusBadge></div>
+                <div className="competition-dashboard-metrics"><span><small>TEAMS</small><b>{competition.teamCount}</b></span><span><small>PLAYER POOL</small><b>{competition.playerCount}</b></span><span><small>ROUND</small><b>{auction?.currentRound ?? "-"}</b></span></div>
+                <div className="competition-links"><Link href={`/admin/teams?tournamentId=${encodeURIComponent(competition.tournamentId)}&gender=${competition.gender}`}>Teams</Link><Link href={`/admin/players?tournamentId=${encodeURIComponent(competition.tournamentId)}&gender=${competition.gender}`}>Player pool</Link><Link href={`/admin/tournaments/${encodeURIComponent(competition.tournamentId)}/auction-config?gender=${competition.gender}`}>Configuration</Link>{auction && <Link className="primary" href={`/admin/auction?tournamentId=${encodeURIComponent(competition.tournamentId)}&gender=${competition.gender}`}>Auction room</Link>}</div>
+              </article>;
+            })}</div>}
           </section>
-
-          <section className="panel">
-            <SectionHeading title="Auction status" action={<StatusBadge tone="live">IN PROGRESS</StatusBadge>} />
-            <div className="schedule-row">
-              <span className="schedule-time">10:00</span>
-              <div>
-                <b>{"Women's auction"}</b>
-                <small>Ready to open at 11:00</small>
-              </div>
-              <StatusBadge tone="success">READY</StatusBadge>
-            </div>
-            <div className="schedule-row">
-              <span className="schedule-time">14:00</span>
-              <div>
-                <b>{"Men's auction"}</b>
-                <small>Round 2 live</small>
-              </div>
-              <StatusBadge tone="live">LIVE</StatusBadge>
-            </div>
-          </section>
-        </div>
-
-        <div className="dashboard-grid">
-          <section className="panel">
-            <SectionHeading title="Recent activity" />
-            {activity.map((item) => (
-              <div className="activity-row" key={item.id}>
-                <span className={`activity-dot ${item.tone}`} />
-                <div>
-                  <b>{item.label}</b>
-                  <small>{item.detail}</small>
-                </div>
-                <time>{item.time}</time>
-              </div>
-            ))}
-          </section>
-
-          <section className="panel">
-            <SectionHeading title="Quick actions" />
-            <div className="quick-actions-stack">
-              <Link className="button button-dark" href="/admin/players/import">
-                Import players
-              </Link>
-              <Link className="button button-outline" href="/admin/auction/setup">
-                Configure auction
-              </Link>
-              <Link className="button button-outline" href="/admin/results/export">
-                Export results
-              </Link>
-            </div>
-          </section>
-        </div>
-
-        <section className="panel" style={{ marginTop: "1.2rem" }}>
-          <SectionHeading title="Teams summary" />
-          <div className="team-grid">
-            {teams.map((team) => (
-              <div className="team-card" key={team.id}>
-                <div className="team-card-top">
-                  <span className="team-logo" style={{ background: team.color }}>{team.shortName}</span>
-                  <div>
-                    <b>{team.name}</b>
-                    <small>{team.squadCount} players</small>
-                  </div>
-                </div>
-                <div className="team-card-row">
-                  <span>Remaining purse</span>
-                  <strong>{team.purse} cr</strong>
-                </div>
-                <div className="mini-progress">
-                  <span style={{ width: `${(team.purse / 100) * 100}%`, background: team.color }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+          {competitionsWithAuctions.length > 0 && <section className="panel dashboard-quick-actions"><SectionHeading title="Quick actions" /><div className="quick-actions-stack"><Link className="button button-outline" href="/admin/tournaments">Manage tournaments</Link><Link className="button button-outline" href="/admin/players/import">Import master players</Link><Link className="button button-outline" href="/history">Review audit history</Link></div></section>}
+        </>}
       </div>
     </AdminShell>
   );

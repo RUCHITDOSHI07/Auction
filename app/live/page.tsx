@@ -1,8 +1,11 @@
 import Link from "next/link";
-import { auctions } from "@/mock/data";
+import { connection } from "next/server";
+import { getPublicAuctions } from "@/lib/services/public-auctions";
 import { StatusBadge } from "@/components/ui/Primitives";
 
-export default function LiveLandingPage() {
+export default async function LiveLandingPage() {
+  await connection();
+  const auctions = await getPublicAuctions().catch(() => null);
   return (
     <main className="live-landing">
       <div className="live-brand">
@@ -10,37 +13,33 @@ export default function LiveLandingPage() {
         <span>
           THE FOUNDERS CUP
           <br />
-          <b>LIVE</b>
+          <b>LIVE DISPLAY</b>
         </span>
       </div>
 
       <div className="live-intro">
-        <span className="eyebrow">PUBLIC DISPLAY · 2026</span>
+        <span className="eyebrow">PUBLIC DISPLAY · READ ONLY</span>
         <h1>
           Choose your
           <br />
           <i>auction room.</i>
         </h1>
-        <p>Follow the latest bids in real time, with separate men’s and women’s rooms.</p>
+        <p>Persisted auction state, updated every few seconds.</p>
       </div>
 
-      <div className="live-room-grid">
-        {auctions.map((auction) => (
-          <Link href={`/live/${auction.type}`} className="live-room-card" key={auction.id}>
-            <span className="live-room-number">0{auction.type === "men" ? "1" : "2"}</span>
-            <div>
-              <StatusBadge tone={auction.status === "IN_PROGRESS" ? "live" : "success"}>
-                {auction.status.replace("_", " ")}
-              </StatusBadge>
-              <h2>{auction.type === "men" ? "Men's" : "Women's"} Premier</h2>
-              <p>
-                {auction.totalPlayers} players · Round {auction.round}
-              </p>
-            </div>
-            <span className="live-arrow">↗</span>
-          </Link>
-        ))}
-      </div>
+      {!auctions && <section className="public-empty-state"><h2>Live auctions unavailable</h2><p>We could not load tournament auction data. Refresh this page to retry.</p></section>}
+      {auctions?.length === 0 && <section className="public-empty-state"><h2>No public auctions yet</h2><p>Configured auctions will appear here once they have been initialized.</p></section>}
+      {Boolean(auctions?.length) && <div className="live-room-grid">{auctions?.map((auction, index) => (
+        <Link href={`/live/${encodeURIComponent(auction.id)}`} className="live-room-card" key={auction.id}>
+          <span className="live-room-number">{String(index + 1).padStart(2, "0")}</span>
+          <div>
+            <StatusBadge tone={auction.status === "live" ? "live" : auction.status === "completed" ? "success" : "warning"}>{auction.status.toUpperCase()}</StatusBadge>
+            <h2>{auction.tournamentName}</h2>
+            <p>{auction.gender === "male" ? "Men's" : "Women's"} · {auction.season ?? "Season unavailable"} · {auction.playerCount} players · Round {auction.currentRound ?? "-"}</p>
+          </div>
+          <span className="live-arrow">↗</span>
+        </Link>
+      ))}</div>}
 
       <footer>Read-only public display · Admin-controlled auction room</footer>
     </main>

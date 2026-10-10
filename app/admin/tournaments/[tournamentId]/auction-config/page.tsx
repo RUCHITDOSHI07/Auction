@@ -23,6 +23,7 @@ export default function AuctionConfigPage() {
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState<string|null>(null);
+  const locked=Boolean(config?.playerPoolIds);
 
   useEffect(()=>{(async()=>{
     try{
@@ -56,17 +57,19 @@ export default function AuctionConfigPage() {
 
   return <AdminShell><div className="content-wrap tournament-content">
     <Link className="back-link" href={`/admin/tournaments/${params.tournamentId}`}>← {tournament?.name??"Tournament"}</Link>
-    <div className="auction-config-head"><div><span className="eyebrow">{tournament?.season} · {gender==="male"?"MEN'S":"WOMEN'S"}</span><h1>Configure auction</h1><p>Set the auction rules and choose the teams that will participate.</p></div><span className={config?"config-ready":"config-draft"}>{config?"CONFIGURED":"DRAFT"}</span></div>
+    <div className="auction-config-head"><div><span className="eyebrow">{tournament?.season} · {gender==="male"?"MEN'S":"WOMEN'S"}</span><h1>Configure auction</h1><p>Set the auction rules and choose the teams that will participate.</p></div><span className={locked?"config-locked":config?"config-ready":"config-draft"}>{locked?"LOCKED AFTER INITIALIZATION":config?.status?.toUpperCase()??"DRAFT"}</span></div>
+    {locked&&<div className="auction-lock-notice" role="status">Auction pool and rules are locked because this competition has been initialized. Player pool changes, team membership, purse, and squad limits are protected from accidental changes.</div>}
     {error&&<div className="tournament-error">{error}</div>}
     {teams.length===0?<section className="panel"><h2>No teams available</h2><p>Create the {gender==="male"?"men's":"women's"} teams first, then return here to configure the auction.</p><Link className="button button-dark" href={`/admin/teams?tournamentId=${params.tournamentId}&gender=${gender}`}>Go to teams</Link></section>:
-    <><section className="auction-config-section"><div><span className="eyebrow">PARTICIPATING TEAMS</span><h2>Select teams</h2><p>Only teams created for this tournament and competition can be selected.</p></div><div className="auction-team-list">{teams.map(team=><label className={selected.includes(team.id)?"auction-team selected":"auction-team"} key={team.id}><input type="checkbox" checked={selected.includes(team.id)} onChange={()=>setSelected(current=>current.includes(team.id)?current.filter(id=>id!==team.id):[...current,team.id])}/><span className="team-logo">{team.logoUrl?<img src={team.logoUrl} alt=""/>:team.shortName}</span><span><strong>{team.name}</strong><small>{team.shortName} · {formatTeamBudget(team.totalBudget)}</small></span></label>)}</div></section>
+    <><section className="auction-config-section"><div><span className="eyebrow">PARTICIPATING TEAMS</span><h2>Select teams</h2><p>Only teams created for this tournament and competition can be selected.</p></div><div className="auction-team-list">{teams.map(team=><label className={selected.includes(team.id)?"auction-team selected":"auction-team"} key={team.id}><input type="checkbox" checked={selected.includes(team.id)} disabled={locked} onChange={()=>setSelected(current=>current.includes(team.id)?current.filter(id=>id!==team.id):[...current,team.id])}/><span className="team-logo">{team.logoUrl?<img src={team.logoUrl} alt=""/>:team.shortName}</span><span><strong>{team.name}</strong><small>{team.shortName} · {formatTeamBudget(team.totalBudget)}</small></span></label>)}</div></section>
     <section className="auction-config-section"><span className="eyebrow">AUCTION RULES</span><div className="auction-rule-grid">
-      <label>Purse per team<input type="number" min="1" value={purse} onChange={e=>setPurse(e.target.value)}/></label>
-      <label>Minimum squad size<input type="number" min="1" value={minSquad} onChange={e=>setMinSquad(e.target.value)}/></label>
-      <label>Maximum squad size<input type="number" min="1" value={maxSquad} onChange={e=>setMaxSquad(e.target.value)}/></label>
-      <label>Bid increment<input type="number" min="1" value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
+      <label>Purse per team<input type="number" min="1" disabled={locked} value={purse} onChange={e=>setPurse(e.target.value)}/></label>
+      <label>Minimum squad size<input type="number" min="1" disabled={locked} value={minSquad} onChange={e=>setMinSquad(e.target.value)}/></label>
+      <label>Maximum squad size<input type="number" min="1" disabled={locked} value={maxSquad} onChange={e=>setMaxSquad(e.target.value)}/></label>
+      <label>Bid increment<input type="number" min="1" disabled={locked} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
     </div></section>
-    <div className="tournament-actions"><button className="button button-dark" type="button" disabled={saving} onClick={()=>void save()}>{saving?"Saving...":"Save auction configuration"}</button><Link className="button button-outline" href={`/admin/tournaments/${params.tournamentId}`}>Cancel</Link></div></>}
+    {config&&<section className="auction-config-summary"><span className="eyebrow">CONFIGURATION SUMMARY</span><div><span>{formatTeamBudget(config.pursePerTeam)} purse per team</span><span>{config.minimumSquadSize}–{config.maximumSquadSize} player squad</span><span>{formatTeamBudget(config.bidIncrement)} bid increment</span><span>{config.teamIds.length} eligible teams</span></div></section>}
+    <div className="tournament-actions"><button className="button button-dark" type="button" disabled={saving||locked} onClick={()=>void save()}>{locked?"Configuration locked":saving?"Saving...":"Save auction configuration"}</button><Link className="button button-outline" href={`/admin/tournaments/${params.tournamentId}`}>Cancel</Link></div></>}
   </div></AdminShell>;
 }
 function formatTeamBudget(value:number){return `₹${value.toLocaleString("en-IN")}`;}

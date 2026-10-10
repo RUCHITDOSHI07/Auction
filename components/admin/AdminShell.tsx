@@ -5,9 +5,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 const navigation = [
-  { href: "/admin", label: "Dashboard", icon: "◫" },
+  { href: "/admin", label: "Overview", icon: "◫" },
   { href: "/admin/tournaments", label: "Tournaments", icon: "◈" },
-  { href: "/admin/settings", label: "Settings", icon: "⚙" },
+  { href: "/admin/players", label: "Players", icon: "◌" },
+  { href: "/admin/teams", label: "Teams", icon: "⌂" },
+  { href: "/history", label: "Auction history", icon: "◷" },
 ];
 
 export default function AdminShell({ children }: { children: ReactNode }) {
@@ -48,14 +50,14 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           <span>CRICKET<br /><b>ADMIN</b></span>
         </Link>
 
-        <div className="sidebar-label">CONTROL ROOM</div>
+        <div className="sidebar-label">AUCTION CONTROL</div>
 
         <nav className="main-nav" aria-label="Admin navigation">
           {navigation.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className={pathname === item.href || pathname.startsWith(`${item.href}/`) ? "nav-item active" : "nav-item"}
+              className={pathname === item.href || (item.href !== "/admin" && pathname.startsWith(`${item.href}/`)) ? "nav-item active" : "nav-item"}
             >
               <span className="nav-icon">{item.icon}</span>
               <span className="nav-label">{item.label}</span>
@@ -66,11 +68,11 @@ export default function AdminShell({ children }: { children: ReactNode }) {
         <div className="sidebar-bottom">
           <Link className="nav-item" href="/live">
             <span className="nav-icon">◉</span>
-            <span className="nav-label">Public live</span>
+            <span className="nav-label">Public display</span>
           </Link>
 
           <div className="operator">
-            <span className="avatar avatar-small">AK</span>
+            <span className="avatar avatar-small">{(authUser?.name ?? authUser?.userId ?? "A").slice(0, 2).toUpperCase()}</span>
             <span>
               <b>{authUser?.name ?? authUser?.userId ?? "Administrator"}</b>
               <small>Administrator · {authUser?.userId}</small>
@@ -93,11 +95,16 @@ export default function AdminShell({ children }: { children: ReactNode }) {
 
       <main className="main-content">
         <header className="topbar">
-          <div className="crumb">2026 SEASON <span>/</span> AUCTION CONTROL ROOM</div>
+          <div className="crumb">PNPL <span>/</span> ADMIN CONTROL</div>
           <div className="top-actions">
             <Link className="live-link" href="/live">◉ View public display</Link>
-            <button className="icon-button" aria-label="Notifications">♧</button>
-            <button className="icon-button" aria-label="Help">?</button>
+            <button
+              className="button button-outline admin-top-logout"
+              type="button"
+              onClick={() => { void fetch("/api/auth/logout", { method: "POST" }).finally(() => router.replace("/admin/login")); }}
+            >
+              Sign out <span aria-hidden="true">↪</span>
+            </button>
           </div>
         </header>
         {children}

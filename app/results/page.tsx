@@ -1,80 +1,12 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import PublicHeader from "@/components/public/PublicHeader";
-import { players, teams } from "@/mock/data";
-import { PageHeader, SectionHeading, StatCard, StatusBadge } from "@/components/ui/Primitives";
+import ResultsReport from "@/components/auction/ResultsReport";
+import { StatusBadge } from "@/components/ui/Primitives";
+import { getAuctionResults } from "@/lib/services/auction-results";
 
-export default function ResultsPage() {
-  const sold = players.filter((player) => player.status === "SOLD");
-
-  return (
-    <main className="public-live">
-      <PublicHeader>
-        <StatusBadge tone="live">PUBLIC</StatusBadge>
-        <span>TOURNAMENT REPORT</span>
-      </PublicHeader>
-
-      <div className="content-wrap">
-        <PageHeader
-          eyebrow="ARCHIVE · MEN'S PREMIER"
-          title="Results"
-          description="A clean record of every selection made in the room."
-          action={<Link className="button button-outline" href="/">Back to home</Link>}
-        />
-
-        <div className="stats-grid">
-          <StatCard label="Total spend" value="63 cr" detail="Across 4 sales" accent="#d9ef75" />
-          <StatCard label="Highest sale" value="21 cr" detail="Arjun Mehta · NS" accent="#f28b58" />
-          <StatCard label="Sold" value="04" detail="12.5% of player pool" accent="#8fd7e7" />
-          <StatCard label="Unsold" value="01" detail="Returns in Round 2" accent="#c4b8ed" />
-        </div>
-
-        <div className="results-grid">
-          <section className="panel">
-            <SectionHeading title="Sold players" action={<StatusBadge tone="success">ROUND 1</StatusBadge>} />
-            {sold.map((player) => {
-              const team = player.teamId ? teams.find((item) => item.id === player.teamId) : undefined;
-              return (
-                <div className="result-row" key={player.id}>
-                  <div className="player-portrait" style={{ background: player.accent }}>{player.initials}</div>
-                  <div>
-                    <b>{player.name}</b>
-                    <small>{player.role} · {player.category}</small>
-                  </div>
-                  <span className="result-team">{team?.shortName}</span>
-                  <strong>{player.soldPrice} cr</strong>
-                </div>
-              );
-            })}
-          </section>
-
-          <section className="panel">
-            <SectionHeading title="Team spending" />
-            <div className="spending-list">
-              {teams.map((team) => (
-                <div className="spending-row" key={team.id}>
-                  <div>
-                    <span className="team-logo team-logo-small" style={{ background: team.color }}>{team.shortName}</span>
-                    <b>{team.name}</b>
-                  </div>
-                  <strong>{100 - team.purse} cr</strong>
-                  <div className="progress">
-                    <span style={{ width: `${100 - team.purse}%`, background: team.color }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <section className="panel" style={{ marginTop: "1.2rem" }}>
-          <SectionHeading title="Unsold players" action={<StatusBadge tone="warning">1 PLAYER</StatusBadge>} />
-          <div className="empty-state compact">
-            <span>↻</span>
-            <h3>Rohan Das</h3>
-            <p>Base price 2 cr · Will return in Round 2.</p>
-          </div>
-        </section>
-      </div>
-    </main>
-  );
+export default async function PublicResultsPage() {
+  await connection();
+  const reports = await getAuctionResults().catch(() => null);
+  return <main className="public-live"><PublicHeader><StatusBadge tone="neutral">PUBLIC</StatusBadge><span>TOURNAMENT RESULTS</span></PublicHeader><div className="content-wrap"><div className="results-public-heading"><div><span className="eyebrow">PERSISTED OUTCOMES</span><h1>Results</h1><p>Final and in-progress tournament auction results.</p></div><Link className="button button-outline" href="/">Home</Link></div>{reports ? <ResultsReport reports={reports} /> : <section className="panel history-state"><h2>Results unavailable</h2><p>We could not load the tournament results right now.</p></section>}</div></main>;
 }

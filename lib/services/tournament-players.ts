@@ -16,6 +16,8 @@ export interface TournamentPlayer {
   soldPrice?: number;
   createdAt: Date;
   updatedAt: Date;
+  auctionId?: string;
+  lastAuctionRound?: number;
 }
 
 type TournamentPlayerDocument = TournamentPlayer & { _id?: unknown };
@@ -58,6 +60,19 @@ export async function importPlayersIntoTournament(tournamentId: string, inputs: 
   if (!tournament) throw new Error("Tournament not found.");
   if (!inputs.length) return { processed: 0, created: 0, linked: 0, duplicateRows: 0 };
 
+  const inputGenders = [...new Set(inputs.map((input) => cleanGender(input.gender)))];
+  for (const gender of inputGenders) {
+    if (!tournament.competitions[gender].enabled) {
+      throw new Error(`${gender === "male" ? "Men's" : "Women's"} competition is not enabled for this tournament.`);
+    }
+  }
+  const initializedAuction = await (await getMongoDb()).collection("auctions").findOne({
+    tournamentId,
+    gender: { $in: inputGenders },
+    playerPoolIds: { $exists: true },
+  });
+  if (initializedAuction) throw new Error("Tournament players and base prices are locked after auction initialization.");
+
   const { createPlayer, getPlayers } = await import("@/lib/services/players");
   const c = await collection(); await ensureIndexes(c);
   const seen = new Set<string>();
@@ -67,7 +82,6 @@ export async function importPlayersIntoTournament(tournamentId: string, inputs: 
 
   for (const input of inputs) {
     const gender = cleanGender(input.gender);
-    if (!tournament.competitions[gender].enabled) throw new Error(`${gender === "male" ? "Men's" : "Women's"} competition is not enabled for this tournament.`);
     const key = `${(input.fullName ?? input.name ?? "").trim().toLowerCase()}|${(input.phoneNumber ?? "").trim().replace(/\D/g, "")}`;
     if (seen.has(key)) { duplicateRows += 1; continue; }
     seen.add(key);

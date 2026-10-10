@@ -58,7 +58,16 @@ export async function saveAuctionConfig(input: AuctionConfigInput) {
   const now = new Date();
   const id = `${normalized.tournamentId}-${normalized.gender}-auction`;
   const existing = await getAuctionConfig(normalized.tournamentId, normalized.gender);
-  const config: AuctionConfig = { id, ...normalized, status: "draft", createdAt: existing?.createdAt ?? now, updatedAt: now };
+  if (existing?.playerPoolIds || existing?.status === "live" || existing?.status === "paused" || existing?.status === "completed") {
+    throw new Error("Auction configuration cannot be changed after initialization.");
+  }
+  const config: AuctionConfig = {
+    id,
+    ...normalized,
+    status: existing?.status === "ready" ? "ready" : "draft",
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
   await c.updateOne({ tournamentId: normalized.tournamentId, gender: normalized.gender }, { $set: config }, { upsert: true });
   return config;
 }

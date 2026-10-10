@@ -89,6 +89,15 @@ async function assertCompetitionEnabled(tournamentId: string, gender: Competitio
   return tournament;
 }
 
+async function assertTeamSetupUnlocked(team: Pick<Team, "tournamentId" | "gender">) {
+  const initializedAuction = await (await getMongoDb()).collection("auctions").findOne({
+    tournamentId: team.tournamentId,
+    gender: team.gender,
+    playerPoolIds: { $exists: true },
+  });
+  if (initializedAuction) throw new Error("Teams are locked after auction initialization.");
+}
+
 export async function getTeams(tournamentId: string, gender: CompetitionGender): Promise<Team[]> {
   const normalizedGender = normalizeGender(gender);
   await assertCompetitionEnabled(tournamentId, normalizedGender);
@@ -145,6 +154,9 @@ export async function updateTeam(
   await ensureTeamIndexes(collection);
   const existing = await getTeamById(teamId);
   if (!existing) throw new Error("Team not found.");
+  if (changes.name !== undefined || changes.totalBudget !== undefined || changes.squadSize !== undefined || changes.status !== undefined) {
+    await assertTeamSetupUnlocked(existing);
+  }
 
   const update: Record<string, unknown> = { updatedAt: new Date() };
 
@@ -186,6 +198,7 @@ export async function deleteTeam(teamId: string) {
   await ensureTeamIndexes(collection);
   const team = await getTeamById(teamId);
   if (!team) throw new Error("Team not found.");
+  await assertTeamSetupUnlocked(team);
   if (team.playersCount > 0) throw new Error("A team with players assigned cannot be deleted.");
   await collection.deleteOne({ id: teamId });
 }
