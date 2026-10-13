@@ -1,19 +1,8 @@
 import { getMongoDb } from "@/lib/mongodb";
 import { getAuctionRoom } from "@/lib/services/auctions";
-import type { CompetitionGender } from "@/types/tournament";
+import type { AuctionConfig } from "@/types/auction-config";
 
-type PublicAuctionConfig = {
-  id: string;
-  tournamentId: string;
-  gender: CompetitionGender;
-  status: string;
-  currentRound?: number;
-  currentPlayerId?: string;
-  currentBid?: number;
-  highestTeamId?: string;
-  playerPoolIds?: string[];
-  updatedAt?: Date;
-};
+type PublicAuctionConfig = AuctionConfig & { _id?: unknown };
 
 export async function getPublicAuctions() {
   const database = await getMongoDb();
@@ -45,7 +34,7 @@ export async function getPublicAuction(auctionId: string) {
   if (!auction || auction.status === "draft") return null;
 
   const [room, tournament] = await Promise.all([
-    getAuctionRoom(auction.tournamentId, auction.gender),
+    getAuctionRoom(auction.tournamentId, auction.gender, auction),
     database.collection<{ id: string; name: string; season: number }>("tournaments")
       .findOne({ id: auction.tournamentId }, { projection: { id: 1, name: 1, season: 1 } }),
   ]);

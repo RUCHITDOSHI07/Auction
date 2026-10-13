@@ -110,6 +110,7 @@ async function getCollections() {
 
 async function ensurePurchaseIndex(collection: Collection<AuctionTransactionDocument>) {
   purchaseIndexPromise ??= (async () => {
+    await collection.createIndex({ auctionId: 1 });
     await collection.createIndex(
       { auctionId: 1, playerId: 1 },
       {
@@ -157,7 +158,10 @@ async function getTeamViews(
     .sort({ name: 1 })
     .toArray();
   const transactions = await collections.transactions
-    .find({ auctionId: auction.id }, { session })
+    .find({ auctionId: auction.id }, {
+      session,
+      projection: { transactionId: 1, reversesTransactionId: 1, type: 1, teamId: 1, amount: 1 },
+    })
     .toArray();
   const purchases = getEffectiveAuctionPurchases(transactions, excludeTransactionId);
   const remainingPlayers = poolIds.length
@@ -237,10 +241,13 @@ async function appendHistory(
 export async function getAuctionRoom(
   tournamentId: string,
   genderValue: unknown,
+  knownAuction?: AuctionDocument,
 ): Promise<AuctionRoom> {
   const gender = cleanGender(genderValue);
   const collections = await getCollections();
-  const document = await collections.auctions.findOne({ tournamentId, gender });
+  const document = knownAuction && knownAuction.tournamentId === tournamentId && knownAuction.gender === gender
+    ? knownAuction
+    : await collections.auctions.findOne({ tournamentId, gender });
   if (!document) return { auction: null, currentPlayer: null, teams: [], playerCount: 0, roundTotal: 0, roundSoldCount: 0, roundUnsoldCount: 0 };
 
   const auction = withoutId(document) as AuctionConfig;

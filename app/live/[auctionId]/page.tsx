@@ -41,6 +41,8 @@ type PublicAuction = {
   teams: { id: string; name: string; shortName: string; remainingBudget: number; playersCount: number; squadSize: number; playersNeeded: number; maximumAffordableBid: number; status?: string }[];
 };
 
+const pollIntervalMs = 4500;
+
 function money(value: number) {
   return `₹${value.toLocaleString("en-IN")}`;
 }
@@ -55,23 +57,37 @@ export default function PublicLivePage() {
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let consecutiveFailures = 0;
+    const controller = new AbortController();
+
     async function poll() {
+      let nextDelay = pollIntervalMs;
       try {
-        const response = await fetch(`/api/public/auctions/${encodeURIComponent(auctionId)}`, { cache: "no-store" });
+        const response = await fetch(`/api/public/auctions/${encodeURIComponent(auctionId)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         const result = await response.json() as { auction?: PublicAuction; error?: string };
         if (!response.ok || !result.auction) throw new Error(result.error ?? "Auction is unavailable.");
+        consecutiveFailures = 0;
         if (active) startTransition(() => { setData(result.auction ?? null); setError(null); setLoading(false); });
       } catch (pollError) {
+        consecutiveFailures += 1;
+        nextDelay = Math.min(pollIntervalMs * 2 ** Math.min(consecutiveFailures - 1, 4), 60000);
         if (active) startTransition(() => {
           setError(pollError instanceof Error ? pollError.message : "Unable to refresh auction.");
           setLoading(false);
         });
       } finally {
-        if (active) timer = setTimeout(() => { void poll(); }, 2500);
+        if (active) timer = setTimeout(() => { void poll(); }, nextDelay);
       }
     }
     void poll();
-    return () => { active = false; if (timer) clearTimeout(timer); };
+    return () => {
+      active = false;
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
   }, [auctionId, retryCount]);
 
   if (loading && !data) return <main className="public-live"><section className="public-empty-state"><p>Loading persisted auction...</p><div className="public-skeleton" /></section></main>;
@@ -97,7 +113,7 @@ export default function PublicLivePage() {
         <section className="public-current-bid"><span className="eyebrow">CURRENT BID</span><strong>{money(auction.currentBid)}</strong><div className="public-winner"><span className="team-logo">{highestTeam?.shortName ?? "--"}</span><div><small>LEADING TEAM</small><b>{highestTeam?.name ?? "No bids yet"}</b></div></div><span className="public-increment">Bid increment · {money(auction.bidIncrement)}</span></section>
       </div>
       <section className="public-squad-section"><div className="public-section-title"><span className="eyebrow">TEAM STATUS · {teams.length} TEAMS</span><h2>Squads and purse</h2></div><div className="public-team-grid">{teams.map((team) => <article className={`public-team${team.id === highestTeam?.id ? " public-team-leading" : ""}`} key={team.id}><div className="public-team-heading"><span className="team-logo">{team.shortName}</span><strong>{team.name}</strong>{team.id === highestTeam?.id && <StatusBadge tone="live">LEADING</StatusBadge>}</div><div className="public-team-metrics"><span><small>REMAINING PURSE</small><b>{money(team.remainingBudget)}</b></span><span><small>SQUAD</small><b>{team.playersCount}/{team.squadSize}</b></span><span className="public-max-bid"><small>MAX BID</small><b>{money(team.maximumAffordableBid)}</b></span></div><div className="public-squad-track"><span style={{ width: `${team.squadSize > 0 ? Math.min(100, team.playersCount / team.squadSize * 100) : 0}%` }} /></div><small className="public-players-needed">{team.playersNeeded} minimum slots needed · max bid reserves for those slots</small></article>)}</div></section>
-      <footer className="public-live-footer"><span>READ-ONLY DISPLAY</span><span>Updated from persisted auction state · polling every 2.5 seconds</span><Link href="/live">All auctions</Link></footer>
+      <footer className="public-live-footer"><span>READ-ONLY DISPLAY</span><span>Updated from persisted auction state · polling every 4.5 seconds</span><Link href="/live">All auctions</Link></footer>
     </main>
   );
 }
