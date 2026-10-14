@@ -4,6 +4,8 @@ import Link from "next/link";
 import { startTransition, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { StatusBadge } from "@/components/ui/Primitives";
+import AuctionResultFeedback from "@/components/auction/AuctionResultFeedback";
+import PlayerPortrait from "@/components/auction/PlayerPortrait";
 
 type PublicAuction = {
   auction: {
@@ -21,6 +23,7 @@ type PublicAuction = {
     highestTeamId: string | null;
     awaitingAdvance: boolean;
     playerCount: number;
+    remainingPlayerCount: number;
     roundTotal: number;
     roundSoldCount: number;
     roundUnsoldCount: number;
@@ -34,11 +37,26 @@ type PublicAuction = {
     age?: number;
     batting?: string;
     bowling?: string;
+    photoUrl?: string;
     basePrice: number;
     status: string;
   };
   highestTeam: null | { id: string; name: string; shortName: string };
   teams: { id: string; name: string; shortName: string; remainingBudget: number; playersCount: number; squadSize: number; playersNeeded: number; maximumAffordableBid: number; status?: string }[];
+  result: null | {
+    eventId: string;
+    outcome: "sold" | "unsold";
+    playerId: string;
+    playerName: string;
+    playerInitials: string;
+    playerPhotoUrl?: string;
+    teamId?: string;
+    teamName?: string;
+    teamShortName?: string;
+    amount?: number;
+    createdAt: string;
+    displayUntil: string;
+  };
 };
 
 const pollIntervalMs = 4500;
@@ -58,17 +76,31 @@ export default function PublicLivePage() {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let consecutiveFailures = 0;
+    let inFlight = false;
+    let refreshWhenSettled = false;
+    let etag: string | null = null;
     const controller = new AbortController();
 
     async function poll() {
+      if (!active || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
       let nextDelay = pollIntervalMs;
       try {
+        const headers = new Headers();
+        if (etag) headers.set("If-None-Match", etag);
         const response = await fetch(`/api/public/auctions/${encodeURIComponent(auctionId)}`, {
           cache: "no-store",
+          headers,
           signal: controller.signal,
         });
+        if (response.status === 304) {
+          consecutiveFailures = 0;
+          if (active) startTransition(() => { setError(null); setLoading(false); });
+          return;
+        }
         const result = await response.json() as { auction?: PublicAuction; error?: string };
         if (!response.ok || !result.auction) throw new Error(result.error ?? "Auction is unavailable.");
+        etag = response.headers.get("ETag") ?? etag;
         consecutiveFailures = 0;
         if (active) startTransition(() => { setData(result.auction ?? null); setError(null); setLoading(false); });
       } catch (pollError) {
@@ -79,12 +111,31 @@ export default function PublicLivePage() {
           setLoading(false);
         });
       } finally {
-        if (active) timer = setTimeout(() => { void poll(); }, nextDelay);
+        inFlight = false;
+        if (active) {
+          timer = setTimeout(() => {
+            void poll();
+          }, refreshWhenSettled ? 0 : nextDelay);
+          refreshWhenSettled = false;
+        }
       }
     }
+
+    function refreshOnReturn() {
+      if (document.visibilityState !== "visible" || !active) return;
+      if (timer) clearTimeout(timer);
+      if (inFlight) {
+        refreshWhenSettled = true;
+      } else {
+        void poll();
+      }
+    }
+
+    document.addEventListener("visibilitychange", refreshOnReturn);
     void poll();
     return () => {
       active = false;
+      document.removeEventListener("visibilitychange", refreshOnReturn);
       controller.abort();
       if (timer) clearTimeout(timer);
     };
@@ -102,17 +153,18 @@ export default function PublicLivePage() {
     <main className="public-live public-live-room">
       <header className="public-header"><Link className="live-brand" href="/live"><span className="brand-mark">PN</span><span>{auction.tournamentName}<br /><b>LIVE DISPLAY</b></span></Link><div className="public-meta"><StatusBadge tone={statusTone}>{auction.status.toUpperCase()}</StatusBadge><span>{genderLabel} · {auction.season ?? "SEASON"} · ROUND {auction.currentRound ?? "-"}</span></div></header>
       {error && <div className="public-refresh-error" role="status">Live refresh delayed: {error}</div>}
+      <AuctionResultFeedback variant="public" result={data.result} storageKey={`public-auction-${auction.id}`} />
       {stateMessage && <div className="public-auction-state"><StatusBadge tone={statusTone}>{stateMessage}</StatusBadge></div>}
       <div className="public-live-grid">
         <section className="public-player-stage">
           {currentPlayer ? <>
-            <div className="public-player-initials" aria-hidden="true">{currentPlayer.initials}</div>
+            <PlayerPortrait className="public-player-portrait" name={currentPlayer.name} initials={currentPlayer.initials} photoUrl={currentPlayer.photoUrl} />
             <div className="public-player-details"><span className="eyebrow">CURRENT PLAYER · {currentPlayer.id}</span><h1>{currentPlayer.name}</h1><p>{[currentPlayer.role, currentPlayer.category, currentPlayer.age ? `${currentPlayer.age} years` : null].filter(Boolean).join(" · ")}</p><div className="public-details"><span><small>BASE PRICE</small><b>{money(currentPlayer.basePrice)}</b></span><span><small>BATTING</small><b>{currentPlayer.batting ?? "Not provided"}</b></span><span><small>BOWLING</small><b>{currentPlayer.bowling ?? "Not provided"}</b></span></div></div>
           </> : <div className="public-round-complete"><span className="eyebrow">ROUND {auction.currentRound ?? "-"}</span><h1>{auction.status === "completed" ? "Auction complete" : "Round complete"}</h1><p>{auction.roundSoldCount} sold · {auction.roundUnsoldCount} unsold</p></div>}
         </section>
         <section className="public-current-bid"><span className="eyebrow">CURRENT BID</span><strong>{money(auction.currentBid)}</strong><div className="public-winner"><span className="team-logo">{highestTeam?.shortName ?? "--"}</span><div><small>LEADING TEAM</small><b>{highestTeam?.name ?? "No bids yet"}</b></div></div><span className="public-increment">Bid increment · {money(auction.bidIncrement)}</span></section>
       </div>
-      <section className="public-squad-section"><div className="public-section-title"><span className="eyebrow">TEAM STATUS · {teams.length} TEAMS</span><h2>Squads and purse</h2></div><div className="public-team-grid">{teams.map((team) => <article className={`public-team${team.id === highestTeam?.id ? " public-team-leading" : ""}`} key={team.id}><div className="public-team-heading"><span className="team-logo">{team.shortName}</span><strong>{team.name}</strong>{team.id === highestTeam?.id && <StatusBadge tone="live">LEADING</StatusBadge>}</div><div className="public-team-metrics"><span><small>REMAINING PURSE</small><b>{money(team.remainingBudget)}</b></span><span><small>SQUAD</small><b>{team.playersCount}/{team.squadSize}</b></span><span className="public-max-bid"><small>MAX BID</small><b>{money(team.maximumAffordableBid)}</b></span></div><div className="public-squad-track"><span style={{ width: `${team.squadSize > 0 ? Math.min(100, team.playersCount / team.squadSize * 100) : 0}%` }} /></div><small className="public-players-needed">{team.playersNeeded} minimum slots needed · max bid reserves for those slots</small></article>)}</div></section>
+      <section className="public-squad-section"><div className="public-section-title"><span className="eyebrow">TEAM STATUS · {teams.length} TEAMS · {auction.remainingPlayerCount} PLAYERS REMAINING</span><h2>Squads and purse</h2></div><div className="public-team-grid">{teams.map((team) => <article className={`public-team${team.id === highestTeam?.id ? " public-team-leading" : ""}`} key={team.id}><div className="public-team-heading"><span className="team-logo">{team.shortName}</span><strong>{team.name}</strong>{team.id === highestTeam?.id && <StatusBadge tone="live">LEADING</StatusBadge>}</div><div className="public-team-metrics"><span><small>REMAINING PURSE</small><b>{money(team.remainingBudget)}</b></span><span><small>SQUAD</small><b>{team.playersCount}/{team.squadSize}</b></span><span className="public-max-bid"><small>MAX BID</small><b>{money(team.maximumAffordableBid)}</b></span></div><div className="public-squad-track"><span style={{ width: `${team.squadSize > 0 ? Math.min(100, team.playersCount / team.squadSize * 100) : 0}%` }} /></div><small className="public-players-needed">{team.playersNeeded} minimum slots needed · max bid reserves for those slots</small></article>)}</div></section>
       <footer className="public-live-footer"><span>READ-ONLY DISPLAY</span><span>Updated from persisted auction state · polling every 4.5 seconds</span><Link href="/live">All auctions</Link></footer>
     </main>
   );

@@ -1,5 +1,20 @@
 import type { CompetitionGender } from "@/types/tournament";
 
+export interface AuctionResultSnapshot {
+  eventId: string;
+  outcome: "sold" | "unsold";
+  playerId: string;
+  playerName: string;
+  playerInitials: string;
+  playerPhotoUrl?: string;
+  teamId?: string;
+  teamName?: string;
+  teamShortName?: string;
+  amount?: number;
+  createdAt: Date;
+  displayUntil: Date;
+}
+
 export interface AuctionConfig {
   id: string;
   tournamentId: string;
@@ -18,6 +33,7 @@ export interface AuctionConfig {
   currentBid?: number;
   highestTeamId?: string;
   awaitingAdvance?: boolean;
+  lastResult?: AuctionResultSnapshot;
   lastActionEventId?: string;
   lastSaleEventId?: string;
   initializedAt?: Date;
@@ -38,6 +54,7 @@ export type AuctionConfigInput = Omit<
   | "currentBid"
   | "highestTeamId"
   | "awaitingAdvance"
+  | "lastResult"
   | "lastActionEventId"
   | "lastSaleEventId"
   | "initializedAt"

@@ -7,6 +7,7 @@ import type { CompetitionGender } from "@/types/tournament";
 import type { Team } from "@/types/team";
 import type { MongoPlayer } from "@/lib/services/players";
 import { calculateTeamAuctionBudget } from "@/lib/auction/calculations";
+import { auctionResultDisplayMs } from "@/lib/auction/results";
 import { getEffectiveAuctionPurchases } from "@/lib/auction/transactions";
 
 type AuctionDocument = AuctionConfig & { _id?: unknown };
@@ -418,9 +419,25 @@ export async function markCurrentAuctionPlayerUnsold(auctionId: string, admin: A
         before: { status: "on_auction" },
         after: { status: "unsold", round },
       });
+      const resultDisplayUntil = new Date(event.createdAt.getTime() + auctionResultDisplayMs);
       const result = await collections.auctions.updateOne(
         { id: auctionId, status: "live", currentPlayerId: playerId, lastActionEventId: event.eventId },
-        { $set: { awaitingAdvance: true, updatedAt: new Date() } },
+        {
+          $set: {
+            awaitingAdvance: true,
+            lastResult: {
+              eventId: event.eventId,
+              outcome: "unsold",
+              playerId,
+              playerName: player.name ?? player.fullName ?? "Unnamed player",
+              playerInitials: player.initials ?? (player.name ?? player.fullName ?? "P").slice(0, 2).toUpperCase(),
+              ...(player.photoUrl ? { playerPhotoUrl: player.photoUrl } : {}),
+              createdAt: event.createdAt,
+              displayUntil: resultDisplayUntil,
+            },
+            updatedAt: event.createdAt,
+          },
+        },
         { session },
       );
       if (result.modifiedCount !== 1) throw new Error("Auction changed before UNSOLD could be finalized.");
@@ -603,7 +620,27 @@ export async function sellCurrentAuctionPlayer(auctionId: string, admin: AdminUs
       }, { session });
       const auctionUpdate = await collections.auctions.updateOne(
         { id: auctionId, status: "live", currentPlayerId: playerId, lastActionEventId: saleEvent.eventId },
-        { $set: { awaitingAdvance: true, lastSaleEventId: saleEvent.eventId, updatedAt: now } },
+        {
+          $set: {
+            awaitingAdvance: true,
+            lastSaleEventId: saleEvent.eventId,
+            lastResult: {
+              eventId: saleEvent.eventId,
+              outcome: "sold",
+              playerId,
+              playerName: player.name ?? player.fullName ?? "Unnamed player",
+              playerInitials: player.initials ?? (player.name ?? player.fullName ?? "P").slice(0, 2).toUpperCase(),
+              ...(player.photoUrl ? { playerPhotoUrl: player.photoUrl } : {}),
+              teamId: storedTeam.id,
+              teamName: storedTeam.name,
+              teamShortName: storedTeam.shortName,
+              amount,
+              createdAt: saleEvent.createdAt,
+              displayUntil: new Date(saleEvent.createdAt.getTime() + auctionResultDisplayMs),
+            },
+            updatedAt: saleEvent.createdAt,
+          },
+        },
         { session },
       );
       if (auctionUpdate.modifiedCount !== 1) throw new Error("Auction changed before the sale could be finalized.");
@@ -712,7 +749,7 @@ export async function undoLatestAuctionSale(
         { id: auctionId, status: "live", currentPlayerId: playerId, awaitingAdvance: true, lastActionEventId: reversalEvent.eventId },
         {
           $set: { currentBid: entry.basePrice, awaitingAdvance: false, updatedAt: reversalEvent.createdAt },
-          $unset: { highestTeamId: "", lastSaleEventId: "" },
+          $unset: { highestTeamId: "", lastSaleEventId: "", lastResult: "" },
         },
         { session },
       );
@@ -904,12 +941,22 @@ export async function correctLatestAuctionSale(
         type: "correction",
         createdAt: correctionEvent.createdAt,
       }, { session });
+      const correctedResult = auction.lastResult
+        ? {
+            ...auction.lastResult,
+            teamId: correctedTeam.id,
+            teamName: correctedTeam.name,
+            teamShortName: correctedTeam.shortName,
+            amount: correctedAmount,
+          }
+        : undefined;
       const auctionUpdate = await collections.auctions.updateOne(
         { id: auctionId, status: "live", currentPlayerId: playerId, awaitingAdvance: true, lastActionEventId: correctionEvent.eventId },
         { $set: {
           currentBid: correctedAmount,
           highestTeamId: correctedTeam.id,
           lastSaleEventId: correctionEvent.eventId,
+          ...(correctedResult ? { lastResult: correctedResult } : {}),
           updatedAt: correctionEvent.createdAt,
         } },
         { session },
@@ -1190,7 +1237,11 @@ async function advanceAuctionPlayer(
   });
 }
 
-export async function advanceAuctionToNextPlayer(auctionId: string, admin: AdminUser) {
+export async function advanceAuctionToNextPlayer(
+  auctionId: string,
+  admin: AdminUser,
+  expectedResultEventId?: string,
+) {
   const collections = await getCollections();
   await ensureHistoryIndexes(collections.history);
   const session = collections.database.client.startSession();
@@ -1202,6 +1253,12 @@ export async function advanceAuctionToNextPlayer(auctionId: string, admin: Admin
       }
       if (!auction.awaitingAdvance || !auction.currentPlayerId) {
         throw new Error("Record the current player's SOLD or UNSOLD outcome before advancing.");
+      }
+      if (expectedResultEventId && auction.lastResult?.eventId !== expectedResultEventId) {
+        throw new Error("The auction result changed before it could advance.");
+      }
+      if (auction.lastResult && auction.lastResult.displayUntil.getTime() > Date.now()) {
+        throw new Error("The result display must finish before advancing.");
       }
       await advanceAuctionPlayer(collections, auction, auction.currentPlayerId, session, admin);
     });

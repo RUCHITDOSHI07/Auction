@@ -5,11 +5,13 @@ import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import AdminShell from "@/components/admin/AdminShell";
 import { PageHeader, SectionHeading, StatusBadge } from "@/components/ui/Primitives";
+import AuctionResultFeedback from "@/components/auction/AuctionResultFeedback";
+import PlayerPortrait from "@/components/auction/PlayerPortrait";
 import type { AuctionConfig } from "@/types/auction-config";
 import type { Team } from "@/types/team";
 import type { Player } from "@/types/firestore";
 
-type AuctionPlayer = Pick<Player, "id" | "name" | "role" | "category" | "age" | "batting" | "bowling" | "initials" | "accent"> & {
+type AuctionPlayer = Pick<Player, "id" | "name" | "role" | "category" | "age" | "batting" | "bowling" | "initials" | "accent" | "photoUrl"> & {
   auctionBasePrice: number;
   auctionStatus: "available" | "on_auction" | "sold" | "unsold";
 };
@@ -59,6 +61,8 @@ function AdminAuctionContent() {
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingBidTeamId, setPendingBidTeamId] = useState<string | null>(null);
   const bidLock = useRef(false);
+  const resultActionLock = useRef(false);
+  const [autoAdvanceAttemptedEventId, setAutoAdvanceAttemptedEventId] = useState<string | null>(null);
   const [correctionPreview, setCorrectionPreview] = useState<CorrectionPreview | null>(null);
   const [correctionTeamId, setCorrectionTeamId] = useState("");
   const [correctionAmount, setCorrectionAmount] = useState("");
@@ -69,18 +73,22 @@ function AdminAuctionContent() {
   const [retryCount, setRetryCount] = useState(0);
 
   async function openSaleCorrection(saleEventId: string, auctionId: string) {
+    resultActionLock.current = true;
     setCorrectionLoading(true);
     setCorrectionError(null);
+    let opened = false;
     try {
       const preview = await getCorrectionPreview(auctionId, saleEventId);
       setCorrectionPreview(preview);
       setCorrectionTeamId(preview.currentTeamId);
       setCorrectionAmount(String(preview.currentAmount));
       setCorrectionReason("");
+      opened = true;
     } catch (previewError) {
       setCorrectionError(previewError instanceof Error ? previewError.message : "Unable to preview correction.");
     } finally {
       setCorrectionLoading(false);
+      if (!opened) resultActionLock.current = false;
     }
   }
 
@@ -114,15 +122,23 @@ function AdminAuctionContent() {
         });
         const linkedSaleEventId = searchParams.get("saleEventId");
         if (linkedSaleEventId && loadedRoom.auction?.lastSaleEventId === linkedSaleEventId) {
+          resultActionLock.current = true;
+          setCorrectionLoading(true);
+          let opened = false;
           void getCorrectionPreview(loadedRoom.auction.id, linkedSaleEventId)
             .then((preview) => {
               if (!active) return;
               setCorrectionPreview(preview);
               setCorrectionTeamId(preview.currentTeamId);
               setCorrectionAmount(String(preview.currentAmount));
+              opened = true;
             })
             .catch((previewError: unknown) => {
               if (active) setCorrectionError(previewError instanceof Error ? previewError.message : "Unable to preview correction.");
+            })
+            .finally(() => {
+              if (active) setCorrectionLoading(false);
+              if (!opened) resultActionLock.current = false;
             });
         }
       })
@@ -143,7 +159,7 @@ function AdminAuctionContent() {
     setRetryCount((count) => count + 1);
   }
 
-  async function runAction(action: AuctionAction) {
+  async function runAction(action: AuctionAction, expectedResultEventId?: string) {
     if (!room?.auction) return;
     setSaving(true);
     setError(null);
@@ -155,13 +171,16 @@ function AdminAuctionContent() {
         {
           method: initialize ? "POST" : "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(initialize ? { action, tournamentId, gender } : { action }),
+          body: JSON.stringify(initialize
+            ? { action, tournamentId, gender }
+            : { action, ...(expectedResultEventId ? { expectedResultEventId } : {}) }),
         },
       );
       const result = await response.json() as { room?: AuctionRoom; error?: string };
       if (!response.ok || !result.room) throw new Error(result.error ?? "Unable to update auction.");
       setRoom(result.room);
       setBidAmount("");
+      if (action === "resume") setAutoAdvanceAttemptedEventId(null);
       setNotice(action === "sold" ? "Sale recorded. Review the result before moving on." : action === "unsold" ? "Player marked unsold. Review before moving on." : action === "next-player" ? "Advanced to the next eligible player." : null);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Unable to update auction.");
@@ -169,6 +188,57 @@ function AdminAuctionContent() {
       setSaving(false);
     }
   }
+
+  const pendingResult = room?.auction?.awaitingAdvance ? room.auction.lastResult : undefined;
+  const pendingResultEventId = pendingResult?.eventId;
+  const pendingResultDisplayUntil = pendingResult
+    ? new Date(pendingResult.displayUntil).getTime()
+    : null;
+
+  useEffect(() => {
+    const auction = room?.auction;
+    const result = auction?.lastResult;
+    if (!auction || auction.status !== "live" || !auction.awaitingAdvance || !result || saving || resultActionLock.current) return undefined;
+    if (autoAdvanceAttemptedEventId === result.eventId) return undefined;
+
+    const delay = Math.max(0, new Date(result.displayUntil).getTime() - Date.now());
+    const timer = window.setTimeout(() => {
+      if (autoAdvanceAttemptedEventId === result.eventId) return;
+      if (resultActionLock.current) return;
+      setAutoAdvanceAttemptedEventId(result.eventId);
+      void (async () => {
+        setSaving(true);
+        setError(null);
+        try {
+          const response = await fetch(`/api/auctions/${encodeURIComponent(auction.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "next-player", expectedResultEventId: result.eventId }),
+          });
+          const responseBody = await response.json() as { room?: AuctionRoom; error?: string };
+          if (!response.ok || !responseBody.room) throw new Error(responseBody.error ?? "Unable to advance the auction.");
+          setRoom(responseBody.room);
+          setBidAmount("");
+        } catch (advanceError) {
+          try {
+            const refresh = await fetch(
+              `/api/auctions?tournamentId=${encodeURIComponent(tournamentId)}&gender=${gender}`,
+              { cache: "no-store" },
+            );
+            const latest = await refresh.json() as { room?: AuctionRoom };
+            if (!refresh.ok || !latest.room) throw advanceError;
+            setRoom(latest.room);
+          } catch {
+            setError(advanceError instanceof Error ? advanceError.message : "Unable to advance the auction.");
+          }
+        } finally {
+          setSaving(false);
+        }
+      })();
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [autoAdvanceAttemptedEventId, correctionLoading, correctionPreview, correctionSaving, gender, pendingResultDisplayUntil, pendingResultEventId, room, saving, tournamentId]);
 
   async function submitBid(teamId: string, customAmount?: number) {
     if (!room?.auction || saving || bidLock.current) return;
@@ -203,7 +273,12 @@ function AdminAuctionContent() {
   }
 
   async function undoSale() {
-    if (!room?.auction?.lastSaleEventId || !window.confirm("Undo this sale? The player will return to this auction position and the team's budget and squad count will be restored.")) return;
+    if (!room?.auction?.lastSaleEventId) return;
+    resultActionLock.current = true;
+    if (!window.confirm("Undo this sale? The player will return to this auction position and the team's budget and squad count will be restored.")) {
+      resultActionLock.current = false;
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -219,6 +294,7 @@ function AdminAuctionContent() {
     } catch (undoError) {
       setError(undoError instanceof Error ? undoError.message : "Unable to undo sale.");
     } finally {
+      resultActionLock.current = false;
       setSaving(false);
     }
   }
@@ -243,6 +319,7 @@ function AdminAuctionContent() {
       const result = await response.json() as { room?: AuctionRoom; error?: string };
       if (!response.ok || !result.room) throw new Error(result.error ?? "Unable to correct sale.");
       setRoom(result.room);
+      resultActionLock.current = false;
       setCorrectionPreview(null);
       setNotice("Sale corrected and recorded in the audit history.");
     } catch (saveError) {
@@ -250,6 +327,11 @@ function AdminAuctionContent() {
     } finally {
       setCorrectionSaving(false);
     }
+  }
+
+  function closeCorrectionPreview() {
+    resultActionLock.current = false;
+    setCorrectionPreview(null);
   }
 
   if (loading) {
@@ -306,6 +388,11 @@ function AdminAuctionContent() {
 
         {error && <div className="tournament-error" role="alert">{error}</div>}
         {notice && <div className="auction-notice" role="status">{notice}</div>}
+        <AuctionResultFeedback
+          variant="admin"
+          result={auction.lastResult}
+          storageKey={`admin-auction-${auction.id}`}
+        />
 
         <div className="auction-layout">
           <section className="current-player-panel">
@@ -313,7 +400,12 @@ function AdminAuctionContent() {
               <>
                 <div className="player-stage" style={{ background: currentPlayer.accent ?? "#d9ef75" }}>
                   <span className="stage-number">PLAYER {playerIndex >= 0 ? playerIndex + 1 : "-"}</span>
-                  <span className="stage-initials">{currentPlayer.initials ?? currentPlayer.name.slice(0, 2).toUpperCase()}</span>
+                  <PlayerPortrait
+                    className="admin-player-portrait"
+                    name={currentPlayer.name}
+                    initials={currentPlayer.initials ?? currentPlayer.name.slice(0, 2).toUpperCase()}
+                    photoUrl={currentPlayer.photoUrl}
+                  />
                   <span className="stage-role">{currentPlayer.role.toUpperCase()}</span>
                 </div>
                 <div className="player-stage-info">
@@ -392,7 +484,7 @@ function AdminAuctionContent() {
             <button className="button button-sold" type="button" disabled={saving || !auction.highestTeamId} onClick={() => { if (window.confirm(`Confirm ${currentPlayer.name} SOLD to ${highestTeam?.name ?? "the highest-bid team"} for ${formatMoney(auction.currentBid ?? 0)}?`)) void runAction("sold"); }}>SOLD</button>
             <button className="button button-unsold" type="button" disabled={saving} onClick={() => { if (window.confirm(`Mark ${currentPlayer.name} UNSOLD?`)) void runAction("unsold"); }}>UNSOLD</button>
           </>}
-          {auction.status === "live" && auction.awaitingAdvance && <button className="button button-dark" type="button" disabled={saving} onClick={() => void runAction("next-player")}>Next player →</button>}
+          {auction.status === "live" && auction.awaitingAdvance && <button className="button button-dark" type="button" disabled={saving || Boolean(auction.lastResult && autoAdvanceAttemptedEventId !== auction.lastResult.eventId)} onClick={() => void runAction("next-player", auction.lastResult?.eventId)}>Next player →</button>}
           {auction.status === "live" && auction.roundStatus === "complete" && room.roundUnsoldCount > 0 && <button className="button button-dark" type="button" disabled={saving} onClick={() => void runAction("next-round")}>Start round {(auction.currentRound ?? 1) + 1} · {room.roundUnsoldCount} unsold</button>}
           {auction.status === "live" && auction.roundStatus === "complete" && room.roundUnsoldCount === 0 && <button className="button button-sold" type="button" disabled={saving} onClick={() => void runAction("complete")}>Complete auction</button>}
           {auction.status === "completed" && <StatusBadge tone="success">AUCTION COMPLETED</StatusBadge>}
@@ -403,7 +495,7 @@ function AdminAuctionContent() {
         <div
           className="auction-modal-backdrop"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !correctionSaving) setCorrectionPreview(null);
+            if (event.target === event.currentTarget && !correctionSaving) closeCorrectionPreview();
           }}
         >
           <section className="auction-correction-modal" role="dialog" aria-modal="true" aria-labelledby="correction-title">
@@ -413,7 +505,7 @@ function AdminAuctionContent() {
                 <h2 id="correction-title">Correct {correctionPreview.player.name}</h2>
                 <p>{correctionPreview.player.id}{correctionPreview.player.role ? ` · ${correctionPreview.player.role}` : ""}</p>
               </div>
-              <button className="icon-button" type="button" aria-label="Close correction dialog" onClick={() => setCorrectionPreview(null)}>×</button>
+              <button className="icon-button" type="button" aria-label="Close correction dialog" onClick={closeCorrectionPreview}>×</button>
             </div>
 
             <div className="correction-origin">
@@ -461,7 +553,7 @@ function AdminAuctionContent() {
                   if (window.confirm("Apply this sale correction? The original sale remains in the permanent audit trail.")) void saveSaleCorrection();
                 }}
               >{correctionSaving ? "Saving correction..." : "Confirm correction"}</button>
-              <button className="button button-outline" type="button" disabled={correctionSaving} onClick={() => setCorrectionPreview(null)}>Cancel</button>
+              <button className="button button-outline" type="button" disabled={correctionSaving} onClick={closeCorrectionPreview}>Cancel</button>
             </div>
           </section>
         </div>,

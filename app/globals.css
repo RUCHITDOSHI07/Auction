@@ -594,6 +594,59 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
   .results-public-heading { align-items:flex-start; flex-direction:column; }
 }
 
+.admin-player-portrait,.public-player-portrait,.auction-result-portrait {
+  display:grid;
+  flex:0 0 auto;
+  place-items:center;
+  overflow:hidden;
+  border:1px solid rgba(167,216,122,.34);
+  background:rgba(167,216,122,.1);
+  color:var(--lime);
+  font-family:"Bahnschrift","Aptos Display","Segoe UI",sans-serif;
+  font-weight:750;
+}
+.admin-player-portrait img,.public-player-portrait img,.auction-result-portrait img { width:100%; height:100%; object-fit:cover; }
+.admin-player-portrait span,.public-player-portrait span,.auction-result-portrait span { font-size:inherit; }
+.admin-player-portrait { position:absolute; inset:50% auto auto 50%; width:min(42vw,14rem); aspect-ratio:1; transform:translate(-50%,-50%); border-radius:50%; font-size:5rem; }
+.public-player-portrait { width:min(28vw,18rem); aspect-ratio:1; border-radius:50%; font-size:5rem; }
+.admin-result-feedback { display:flex; align-items:center; justify-content:space-between; gap:.8rem; min-height:2.25rem; margin:0 0 .7rem; }
+.auction-sound-toggle { min-height:2rem; border:1px solid var(--line); border-radius:4px; background:#111d1a; padding:.4rem .65rem; color:var(--cream); cursor:pointer; font-size:.65rem; font-weight:700; }
+.auction-sound-toggle:hover { border-color:var(--lime); }
+.auction-sound-toggle.is-enabled { border-color:rgba(167,216,122,.6); color:var(--lime); }
+.admin-result-banner { display:grid; grid-template-columns:3.5rem minmax(0,1fr); align-items:center; gap:.7rem; flex:1; max-width:35rem; border:1px solid var(--line); border-radius:5px; background:var(--surface); padding:.5rem .7rem; animation:auction-result-enter .28s ease-out both; }
+.admin-result-banner .auction-result-portrait { width:3.5rem; aspect-ratio:1; border-radius:50%; font-size:1.2rem; }
+.admin-result-copy { display:grid; min-width:0; gap:.1rem; }
+.admin-result-copy strong { color:var(--lime); font-size:.75rem; }
+.result-unsold .admin-result-copy strong,.result-unsold .public-result-copy > strong { color:#f28b75; }
+.admin-result-copy span,.admin-result-copy small { overflow-wrap:anywhere; }
+.admin-result-copy span { font-size:.8rem; font-weight:700; }
+.admin-result-copy small { color:var(--muted); font-size:.67rem; }
+.public-result-sound-control { display:flex; justify-content:flex-end; max-width:110rem; margin:.35rem auto; }
+.public-result-overlay { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; overflow-y:auto; background:rgba(4,10,8,.94); padding:1rem; animation:auction-result-scrim .22s ease-out both; }
+.public-result-card { display:grid; grid-template-columns:minmax(8rem,15rem) minmax(0,1fr); align-items:center; gap:clamp(1rem,4vw,3rem); width:min(100%,58rem); border:1px solid rgba(167,216,122,.45); border-radius:7px; background:#111d1a; padding:clamp(1.2rem,4vw,3rem); animation:auction-result-enter .32s cubic-bezier(.18,.75,.24,1) both; }
+.public-result-overlay.result-unsold .public-result-card { border-color:rgba(242,139,117,.58); }
+.public-result-card .auction-result-portrait { width:100%; aspect-ratio:1; border-radius:50%; font-size:5rem; }
+.public-result-copy { min-width:0; }
+.public-result-copy > strong { display:block; margin:.3rem 0; color:var(--lime); font-size:clamp(3rem,8vw,6rem); font-weight:850; line-height:.95; }
+.public-result-copy h2 { overflow-wrap:anywhere; font-size:clamp(1.6rem,4vw,3rem); }
+.public-result-copy p { display:flex; align-items:baseline; flex-wrap:wrap; gap:.5rem 1.2rem; margin-top:1rem; color:var(--muted); font-size:1rem; }
+.public-result-copy p b { color:var(--cream); }
+@keyframes auction-result-enter { from { opacity:0; transform:translateY(1rem) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+@keyframes auction-result-scrim { from { opacity:0; } to { opacity:1; } }
+@media (max-width:600px) {
+  .admin-result-feedback { align-items:stretch; flex-direction:column-reverse; }
+  .admin-result-feedback .auction-sound-toggle { align-self:flex-end; }
+  .admin-result-banner { width:100%; }
+  .admin-player-portrait { width:min(55vw,11rem); font-size:3.5rem; }
+  .public-player-portrait { width:7rem; font-size:3rem; }
+  .public-result-card { grid-template-columns:minmax(0,1fr); justify-items:center; gap:1rem; max-width:25rem; text-align:center; }
+  .public-result-card .auction-result-portrait { width:min(52vw,11rem); font-size:3.5rem; }
+  .public-result-copy p { justify-content:center; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .admin-result-banner,.public-result-overlay,.public-result-card { animation:none; }
+}
+
 
 /* Team management UI */
 .team-context-bar { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.8rem; margin:1.2rem 0; }
