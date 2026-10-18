@@ -1,6 +1,7 @@
 import "server-only";
 
 import { MongoClient, type Db } from "mongodb";
+import { resolveMongoDatabaseName } from "@/lib/mongodb-config.mjs";
 
 declare global {
   var mongoClientPromise: Promise<MongoClient> | undefined;
@@ -55,5 +56,5 @@ function getMongoClientPromise() {
 
 export async function getMongoDb(): Promise<Db> {
   const client = await getMongoClientPromise();
-  return client.db("pnpl-auction");
+  return client.db(resolveMongoDatabaseName());
 }

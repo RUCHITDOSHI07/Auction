@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { MongoClient } from "mongodb";
+import { resolveMongoDatabaseName } from "../lib/mongodb-config.mjs";
 
 const userId = process.env.ADMIN_USER_ID?.trim();
 const password = process.env.ADMIN_PASSWORD;
@@ -14,7 +15,7 @@ const client = new MongoClient(process.env.MONGODB_URI ?? "");
 try {
   if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is not configured.");
   await client.connect();
-  const collection = client.db("pnpl-auction").collection("admins");
+  const collection = client.db(resolveMongoDatabaseName()).collection("admins");
   await collection.createIndex({ userId: 1 }, { unique: true, name: "admins_user_id_unique" });
   const existing = await collection.findOne({ userId });
   if (existing) throw new Error(`Admin '${userId}' already exists; no password was changed.`);
