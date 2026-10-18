@@ -1,5 +1,6 @@
 import type { Collection } from "mongodb";
 import { getMongoDb } from "@/lib/mongodb";
+import { publicRevisionUpdate, publicTeamAuctionFilter } from "@/lib/auction/public-cache";
 import { getTournamentById } from "@/lib/services/tournaments";
 import type { CompetitionGender } from "@/types/tournament";
 import type { Team, TeamInput, TeamStatus } from "@/types/team";
@@ -190,6 +191,12 @@ export async function updateTeam(
     { returnDocument: "after" },
   );
   if (!result) throw new Error("Team not found.");
+  if (changes.shortName !== undefined) {
+    await (await getMongoDb()).collection("auctions").updateMany(
+      publicTeamAuctionFilter(existing.tournamentId, existing.gender, teamId),
+      publicRevisionUpdate("publicMetadataRevision"),
+    );
+  }
   return toTeam(result);
 }
 

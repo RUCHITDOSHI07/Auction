@@ -1,5 +1,9 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Public Auction Load Test
+
+See [the staging-only public auction load-test procedure](docs/public-auction-staging-load-test.md). The runner defaults to dry-run and only sends read-only requests after explicit staging confirmation.
+
 ## Getting Started
 
 First, run the development server:

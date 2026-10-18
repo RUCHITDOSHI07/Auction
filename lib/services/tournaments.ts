@@ -1,5 +1,6 @@
 import type { Collection, UpdateFilter } from "mongodb";
 import { getMongoDb } from "@/lib/mongodb";
+import { publicRevisionUpdate, publicTournamentAuctionFilter } from "@/lib/auction/public-cache";
 import type { Tournament, TournamentInput, TournamentStatus } from "@/types/tournament";
 
 type TournamentDocument = Omit<Tournament, "createdAt" | "updatedAt"> & {
@@ -150,6 +151,10 @@ export async function updateTournament(
   await collection.updateOne({ id: tournamentId }, update);
   const updated = await collection.findOne({ id: tournamentId });
   if (!updated) throw new Error("Tournament could not be loaded after update.");
+  await (await getMongoDb()).collection("auctions").updateMany(
+    publicTournamentAuctionFilter(tournamentId),
+    publicRevisionUpdate("publicMetadataRevision"),
+  );
 
   return toTournament(updated);
 }

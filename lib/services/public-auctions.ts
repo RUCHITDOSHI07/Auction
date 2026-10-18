@@ -3,12 +3,16 @@ import { getMongoDb } from "@/lib/mongodb";
 import { calculateTeamAuctionBudget } from "@/lib/auction/calculations";
 import { auctionResultDeliveryGraceMs } from "@/lib/auction/results";
 import { getEffectiveAuctionPurchases } from "@/lib/auction/transactions";
+import { createInFlightCoalescer, createPublicAuctionEtag, matchesIfNoneMatch, publicAuctionReadKey } from "@/lib/auction/public-cache";
 import type { AuctionConfig, AuctionResultSnapshot } from "@/types/auction-config";
 import type { MongoPlayer } from "@/lib/services/players";
 import type { Team } from "@/types/team";
 import type { CompetitionGender } from "@/types/tournament";
 
-type PublicAuctionConfig = AuctionConfig;
+type PublicAuctionConfig = AuctionConfig & {
+  publicMetadataRevision?: number;
+  publicPlayerRevision?: number;
+};
 type PublicTeam = Pick<Team, "id" | "name" | "shortName" | "status">;
 type PublicTeamDocument = PublicTeam & {
   tournamentId: string;
@@ -47,22 +51,35 @@ type PublicPlayer = Pick<MongoPlayer,
 >;
 
 type PublicMetadata = { tournament: PublicTournament | null; teams: PublicTeam[] };
+type PublicMetadataLookup = { metadata: PublicMetadata; cacheHit: boolean };
 type CachedPublicMetadata = { expiresAt: number; value: Promise<PublicMetadata> };
 type PublicResult = Omit<AuctionResultSnapshot, "createdAt" | "displayUntil"> & {
   createdAt: string;
   displayUntil: string;
 };
+type PublicAuctionResponse = Awaited<ReturnType<typeof loadPublicAuction>>;
 
 const publicMetadataCache = new Map<string, CachedPublicMetadata>();
 const publicMetadataCacheMs = 60_000;
 const maximumPublicMetadataEntries = 100;
+const publicAuctionReadsInFlight = createInFlightCoalescer<string, PublicAuctionResponse>();
+
+function publicAuctionEtag(auction: PublicAuctionConfig) {
+  const resultWindowVisible = Boolean(
+    auction.lastResult && Date.now() - auction.lastResult.createdAt.getTime() <= auctionResultDeliveryGraceMs,
+  );
+  return createPublicAuctionEtag(auction, resultWindowVisible);
+}
 
 async function getPublicMetadata(
   database: Db,
   auction: PublicAuctionConfig,
-): Promise<PublicMetadata> {
-  const cached = publicMetadataCache.get(auction.id);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
+): Promise<PublicMetadataLookup> {
+  const cacheKey = JSON.stringify([auction.id, auction.publicMetadataRevision ?? 0]);
+  const cached = publicMetadataCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { metadata: await cached.value, cacheHit: true };
+  }
 
   const value = Promise.all([
     database.collection<PublicTeamDocument>("teams")
@@ -83,12 +100,12 @@ async function getPublicMetadata(
     if (oldestKey) publicMetadataCache.delete(oldestKey);
   }
   const entry = { expiresAt: Date.now() + publicMetadataCacheMs, value };
-  publicMetadataCache.set(auction.id, entry);
+  publicMetadataCache.set(cacheKey, entry);
 
   try {
-    return await value;
+    return { metadata: await value, cacheHit: false };
   } catch (error) {
-    if (publicMetadataCache.get(auction.id) === entry) publicMetadataCache.delete(auction.id);
+    if (publicMetadataCache.get(cacheKey) === entry) publicMetadataCache.delete(cacheKey);
     throw error;
   }
 }
@@ -147,40 +164,8 @@ export async function getPublicAuctions() {
   }));
 }
 
-export async function getPublicAuction(auctionId: string, ifNoneMatch?: string) {
+async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
   const database = await getMongoDb();
-  const auction = await database.collection<PublicAuctionConfig>("auctions").findOne({ id: auctionId }, {
-    projection: {
-      _id: 0,
-      id: 1,
-      tournamentId: 1,
-      gender: 1,
-      teamIds: 1,
-      pursePerTeam: 1,
-      minimumSquadSize: 1,
-      maximumSquadSize: 1,
-      bidIncrement: 1,
-      status: 1,
-      currentRound: 1,
-      roundPlayerIds: 1,
-      roundStatus: 1,
-      playerPoolIds: 1,
-      currentPlayerId: 1,
-      currentBid: 1,
-      highestTeamId: 1,
-      awaitingAdvance: 1,
-      lastActionEventId: 1,
-      lastSaleEventId: 1,
-      lastResult: 1,
-      updatedAt: 1,
-    },
-  });
-  if (!auction || auction.status === "draft") return null;
-
-  const version = `${auction.updatedAt.getTime()}-${auction.lastActionEventId ?? ""}`;
-  const etag = `"${version}"`;
-  if (ifNoneMatch === etag) return { notModified: true as const, etag };
-
   const round = auction.currentRound ?? 1;
   const poolIds = auction.playerPoolIds ?? [];
   const roundPlayerIds = auction.roundPlayerIds ?? [];
@@ -194,7 +179,7 @@ export async function getPublicAuction(auctionId: string, ifNoneMatch?: string) 
     status: { $in: ["available", "unsold"] },
   };
 
-  const [metadata, transactions, remainingPlayers, player, tournamentPlayer, roundStats] = await Promise.all([
+  const [metadataLookup, transactions, remainingPlayers, player, tournamentPlayer, roundStats] = await Promise.all([
     getPublicMetadata(database, auction),
     database.collection<PublicTransaction>("auctionTransactions")
       .find({ auctionId: auction.id }, {
@@ -289,6 +274,18 @@ export async function getPublicAuction(auctionId: string, ifNoneMatch?: string) 
       : Promise.resolve([]),
   ]);
 
+  const metadata = metadataLookup.metadata;
+  if (process.env.PUBLIC_AUCTION_DIAGNOSTICS === "true") {
+    const additionalMongoReads = (metadataLookup.cacheHit ? 0 : 2) + 1 + Number(poolIds.length > 0) +
+      Number(Boolean(auction.currentPlayerId)) * 2 + Number(Boolean(roundPlayerIds.length && auction.currentRound));
+    console.info(JSON.stringify({
+      event: "public_auction_snapshot",
+      auctionId: auction.id,
+      additionalMongoReads,
+      metadataCacheHit: metadataLookup.cacheHit,
+    }));
+  }
+
   if (auction.currentPlayerId && (!player || !tournamentPlayer || player.gender !== auction.gender)) {
     throw new Error("The persisted current player is missing or does not match this competition.");
   }
@@ -377,4 +374,58 @@ export async function getPublicAuction(auctionId: string, ifNoneMatch?: string) 
       result: publicResult(auction.lastResult),
     },
   };
+}
+
+export async function getPublicAuction(auctionId: string, ifNoneMatch?: string) {
+  const database = await getMongoDb();
+  const auction = await database.collection<PublicAuctionConfig>("auctions").findOne({ id: auctionId }, {
+    projection: {
+      _id: 0,
+      id: 1,
+      tournamentId: 1,
+      gender: 1,
+      teamIds: 1,
+      pursePerTeam: 1,
+      minimumSquadSize: 1,
+      maximumSquadSize: 1,
+      bidIncrement: 1,
+      status: 1,
+      currentRound: 1,
+      roundPlayerIds: 1,
+      roundStatus: 1,
+      playerPoolIds: 1,
+      currentPlayerId: 1,
+      currentBid: 1,
+      highestTeamId: 1,
+      awaitingAdvance: 1,
+      lastActionEventId: 1,
+      lastSaleEventId: 1,
+      lastResult: 1,
+      updatedAt: 1,
+      publicMetadataRevision: 1,
+      publicPlayerRevision: 1,
+    },
+  });
+  if (!auction || auction.status === "draft") {
+    if (process.env.PUBLIC_AUCTION_DIAGNOSTICS === "true") {
+      console.info(JSON.stringify({ event: "public_auction_request", auctionId, mongoReads: 1, outcome: "not_found" }));
+    }
+    return null;
+  }
+
+  const etag = publicAuctionEtag(auction);
+  if (matchesIfNoneMatch(ifNoneMatch, etag)) {
+    if (process.env.PUBLIC_AUCTION_DIAGNOSTICS === "true") {
+      console.info(JSON.stringify({ event: "public_auction_request", auctionId, mongoReads: 1, outcome: "not_modified" }));
+    }
+    return { notModified: true as const, etag };
+  }
+
+  const cacheKey = publicAuctionReadKey(auction.id, etag);
+  const coalesced = publicAuctionReadsInFlight.has(cacheKey);
+  const pending = publicAuctionReadsInFlight.run(cacheKey, () => loadPublicAuction(auction, etag));
+  if (process.env.PUBLIC_AUCTION_DIAGNOSTICS === "true") {
+    console.info(JSON.stringify({ event: "public_auction_request", auctionId, mongoReads: 1, outcome: "modified", coalesced }));
+  }
+  return pending;
 }

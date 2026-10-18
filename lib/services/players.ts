@@ -1,5 +1,6 @@
 import type { Collection, Filter, UpdateFilter } from "mongodb";
 import { getMongoDb } from "@/lib/mongodb";
+import { publicPlayerAuctionFilter, publicRevisionUpdate } from "@/lib/auction/public-cache";
 import type { Player, PlayerInput } from "@/types/firestore";
 import { normalizePlayerGender } from "@/lib/players";
 
@@ -145,6 +146,10 @@ export async function updatePlayer(
   if (result.matchedCount === 0) {
     throw new Error(`Player ${playerId} was not found.`);
   }
+  await (await getMongoDb()).collection("auctions").updateMany(
+    publicPlayerAuctionFilter(playerId),
+    publicRevisionUpdate("publicPlayerRevision"),
+  );
 }
 
 export async function deletePlayer(playerId: string) {
@@ -154,6 +159,10 @@ export async function deletePlayer(playerId: string) {
   if (result.deletedCount === 0) {
     throw new Error(`Player ${playerId} was not found.`);
   }
+  await (await getMongoDb()).collection("auctions").updateMany(
+    publicPlayerAuctionFilter(playerId),
+    publicRevisionUpdate("publicPlayerRevision"),
+  );
 }
 
 export async function bulkUpsertPlayers(

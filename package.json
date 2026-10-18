@@ -8,6 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test:auction": "node --experimental-strip-types --test tests/auction/*.test.mjs",
+    "test:public": "node --experimental-strip-types --test tests/auction/public-*.test.mjs",
+    "test:mongodb": "node --test tests/mongodb-config.test.mjs",
+    "load:public": "node scripts/public-auction-load.mjs",
     "typecheck": "tsc --noEmit",
     "admin:create": "node --env-file=.env scripts/create-admin.mjs"
   },
