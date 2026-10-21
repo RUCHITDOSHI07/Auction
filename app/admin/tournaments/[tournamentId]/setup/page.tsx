@@ -8,7 +8,15 @@ import ExcelUpload from "@/components/excel/ExcelUpload";
 import type { AuctionConfig } from "@/types/auction-config";
 import type { MongoPlayer } from "@/lib/services/players";
 import type { Team } from "@/types/team";
-import type { CompetitionGender, Tournament } from "@/types/tournament";
+import {
+  DEFAULT_TOURNAMENT_CATEGORY_PRICES,
+  MAX_PREMIUM_PLAYERS_PER_TEAM,
+} from "@/lib/auction/category-rules";
+import type {
+  CompetitionGender,
+  Tournament,
+  TournamentCategoryRules,
+} from "@/types/tournament";
 import { normalizeTournamentPlayerCategory } from "@/lib/auction/category-rules";
 
 type SetupPlayer = MongoPlayer & {
@@ -58,6 +66,15 @@ function emptyAuctionForm(): AuctionForm {
   };
 }
 
+function defaultCategoryRules(): TournamentCategoryRules {
+  return {
+    enabled: false,
+    basePrices: { ...DEFAULT_TOURNAMENT_CATEGORY_PRICES },
+    generalIconPrice: 15000,
+    maxPremiumPlayersPerTeam: MAX_PREMIUM_PLAYERS_PER_TEAM,
+  };
+}
+
 function label(gender: CompetitionGender) {
   return gender === "male" ? "Men's" : "Women's";
 }
@@ -78,8 +95,14 @@ export default function TournamentSetupWizard() {
     male: emptyAuctionForm(),
     female: emptyAuctionForm(),
   });
+  const [categoryRules, setCategoryRules] = useState<Record<CompetitionGender, TournamentCategoryRules>>({
+    male: defaultCategoryRules(),
+    female: defaultCategoryRules(),
+  });
   const [teamForm, setTeamForm] = useState<TeamForm>(emptyTeamForm);
   const [teamGender, setTeamGender] = useState<CompetitionGender>("male");
+  const [auctionGender, setAuctionGender] = useState<CompetitionGender>("male");
+  const [iconGender, setIconGender] = useState<CompetitionGender>("male");
   const [iconAssignments, setIconAssignments] = useState<Record<CompetitionGender, Record<string, string>>>({
     male: {},
     female: {},
@@ -95,9 +118,13 @@ export default function TournamentSetupWizard() {
   );
   const iconGenders = useMemo(
     () => enabledGenders.filter((gender) =>
-      tournament?.competitions[gender].categoryRules?.enabled && teams[gender].length > 0,
+      categoryRules[gender].enabled && teams[gender].length > 0,
     ),
-    [enabledGenders, teams, tournament],
+    [categoryRules, enabledGenders, teams],
+  );
+  const configuredGenders = useMemo(
+    () => enabledGenders.filter((gender) => teams[gender].length > 0),
+    [enabledGenders, teams],
   );
   const stepNames = useMemo(
     () => ["Teams", "Import players", "Auction rules", ...(iconGenders.length ? ["Icon players"] : [])],
@@ -174,8 +201,22 @@ export default function TournamentSetupWizard() {
     setConfigs(data.configs);
     setAuctionForms(data.auctionForms);
     setIconAssignments(data.iconAssignments);
+    setCategoryRules({
+      male: data.tournament.competitions.male.categoryRules ?? defaultCategoryRules(),
+      female: data.tournament.competitions.female.categoryRules ?? defaultCategoryRules(),
+    });
     const activeGenders = genders.filter((gender) => data.tournament.competitions[gender].enabled);
     setTeamGender((current) => activeGenders.includes(current) ? current : activeGenders[0] ?? "male");
+    setAuctionGender((current) =>
+      activeGenders.includes(current) && data.teams[current].length > 0
+        ? current
+        : activeGenders.find((gender) => data.teams[gender].length > 0) ?? activeGenders[0] ?? "male",
+    );
+    setIconGender((current) =>
+      activeGenders.includes(current) && data.teams[current].length > 0
+        ? current
+        : activeGenders.find((gender) => data.teams[gender].length > 0) ?? activeGenders[0] ?? "male",
+    );
   }, []);
 
   const refreshData = useCallback(async () => {
@@ -241,6 +282,54 @@ export default function TournamentSetupWizard() {
     }));
   }
 
+  function setCategoryRule(gender: CompetitionGender, update: Partial<TournamentCategoryRules>) {
+    setCategoryRules((current) => ({
+      ...current,
+      [gender]: { ...current[gender], ...update },
+    }));
+  }
+
+  function canEditCategoryRules(gender: CompetitionGender) {
+    return players.every((player) => player.gender !== gender)
+      && !configs[gender]?.playerPoolIds;
+  }
+
+  async function saveCategoryRules() {
+    const editableGenders = enabledGenders.filter(canEditCategoryRules);
+    if (editableGenders.length === 0) {
+      setStep(1);
+      setError(null);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/tournaments/${encodeURIComponent(tournamentId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          categoryRules: Object.fromEntries(
+            editableGenders.map((gender) => [gender, categoryRules[gender]]),
+          ),
+        }),
+      });
+      const result = await response.json() as { tournament?: Tournament; error?: string };
+      if (!response.ok || !result.tournament) {
+        throw new Error(result.error ?? "Unable to save competition category rules.");
+      }
+      setTournament(result.tournament);
+      setCategoryRules({
+        male: result.tournament.competitions.male.categoryRules ?? defaultCategoryRules(),
+        female: result.tournament.competitions.female.categoryRules ?? defaultCategoryRules(),
+      });
+      setStep(1);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save competition category rules.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveAuctionConfigs() {
     setSaving(true);
     setError(null);
@@ -270,7 +359,11 @@ export default function TournamentSetupWizard() {
       return;
     }
     setSaving(false);
-    setStep((current) => current + 1);
+    if (iconGenders.length > 0) {
+      setStep((current) => current + 1);
+    } else {
+      router.push(`/admin/tournaments/${encodeURIComponent(tournamentId)}`);
+    }
   }
 
   async function saveIconAssignments() {
@@ -325,7 +418,7 @@ export default function TournamentSetupWizard() {
         <Link className="back-link" href={`/admin/tournaments/${encodeURIComponent(tournamentId)}`}>← {tournament.name}</Link>
         <div className="auction-config-head">
           <div>
-            <span className="eyebrow">TOURNAMENT SETUP · STEP {currentStep + 2} OF {stepNames.length + 1}</span>
+            <span className="eyebrow">TOURNAMENT SETUP · STEP {currentStep + 1} OF {stepNames.length}</span>
             <h1>{currentStepName}</h1>
             <p>Set up teams, import the tournament player pool, configure the auction, and optionally assign icon players.</p>
           </div>
@@ -376,6 +469,63 @@ export default function TournamentSetupWizard() {
                   <small>Start by adding the first team for this competition.</small>
                 </div>
               )}
+              <section className="setup-category-rules">
+                <div className="setup-section-title">
+                  <div>
+                    <span className="eyebrow">PLAYER CATEGORIES</span>
+                    <h2>Category players & icon assignments</h2>
+                    <p>Configure category pricing before importing the player Excel file. Icon players are assigned after auction rules are saved.</p>
+                  </div>
+                </div>
+                <label className="category-rules-toggle">
+                  <input
+                    type="checkbox"
+                    checked={categoryRules[teamGender].enabled}
+                    disabled={!canEditCategoryRules(teamGender)}
+                    onChange={(event) => setCategoryRule(teamGender, { enabled: event.target.checked })}
+                  />
+                  <span>
+                    <strong>Enable category pricing for {label(teamGender).toLowerCase()}</strong>
+                    <small>Category A/B/C players count toward the two-player team limit. General players are not limited.</small>
+                  </span>
+                </label>
+                {categoryRules[teamGender].enabled && (
+                  <div className="category-rule-grid">
+                    {(["A", "B", "C", "General"] as const).map((category) => (
+                      <label key={category}>
+                        Category {category} base price
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={categoryRules[teamGender].basePrices[category]}
+                          disabled={!canEditCategoryRules(teamGender)}
+                          onChange={(event) => setCategoryRule(teamGender, {
+                            basePrices: {
+                              ...categoryRules[teamGender].basePrices,
+                              [category]: Number(event.target.value),
+                            },
+                          })}
+                        />
+                      </label>
+                    ))}
+                    <label>
+                      General icon-player price
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={categoryRules[teamGender].generalIconPrice}
+                        disabled={!canEditCategoryRules(teamGender)}
+                        onChange={(event) => setCategoryRule(teamGender, { generalIconPrice: Number(event.target.value) })}
+                      />
+                    </label>
+                  </div>
+                )}
+                {!canEditCategoryRules(teamGender) && (
+                  <p className="tournament-help">Category rules are locked because this competition already has imported players or an initialized auction.</p>
+                )}
+              </section>
               <form className="setup-team-form" onSubmit={(event) => void createTeam(event)}>
                 <div className="team-form-grid">
                   <label>Team name<input required placeholder="e.g. PNPL Panthers" value={teamForm.name} onChange={(event) => setTeamForm({ ...teamForm, name: event.target.value })} /></label>
@@ -389,7 +539,9 @@ export default function TournamentSetupWizard() {
               </form>
             </section>
             <div className="tournament-actions">
-              <button className="button button-dark" type="button" disabled={!canContinueFromTeams()} onClick={() => { setStep(1); setError(null); }}>Continue to player import</button>
+              <button className="button button-dark" type="button" disabled={saving || !canContinueFromTeams()} onClick={() => void saveCategoryRules()}>
+                {saving ? "Saving..." : "Save rules and continue to player import"}
+              </button>
               <Link className="button button-outline" href={`/admin/tournaments/${encodeURIComponent(tournamentId)}`}>Save and exit</Link>
             </div>
             {!canContinueFromTeams()
@@ -403,13 +555,13 @@ export default function TournamentSetupWizard() {
         {currentStepName === "Import players" && (
           <>
             <section className="auction-config-section">
-              <p>Import one Excel workbook containing all enabled competitions. Include a Category column (A, B, C, or General) for competitions using category pricing. The server applies the configured tournament prices.</p>
+              <p>Upload one workbook for this tournament. It can contain both men&apos;s and women&apos;s players, but each player is linked only to their own enabled competition. Include a Category column (A, B, C, or General) wherever category pricing is enabled; the server applies that competition&apos;s configured prices.</p>
               <ExcelUpload
                 importEndpoint={`/api/tournaments/${encodeURIComponent(tournamentId)}/players/import`}
                 backHref={null}
                 categoryRules={{
-                  male: tournament.competitions.male.categoryRules?.enabled ?? false,
-                  female: tournament.competitions.female.categoryRules?.enabled ?? false,
+                  male: categoryRules.male.enabled,
+                  female: categoryRules.female.enabled,
                 }}
                 onImportComplete={() => void refreshData()}
               />
@@ -424,7 +576,27 @@ export default function TournamentSetupWizard() {
 
         {currentStepName === "Auction rules" && (
           <>
-            {enabledGenders.map((gender) => {
+            <div className="setup-gender-tabs" role="tablist" aria-label="Auction competition">
+              {configuredGenders.map((gender) => (
+                <button
+                  aria-selected={auctionGender === gender}
+                  className={auctionGender === gender ? "button button-dark" : "button button-outline"}
+                  key={gender}
+                  role="tab"
+                  type="button"
+                  onClick={() => setAuctionGender(gender)}
+                >
+                  {label(gender)} auction · {teams[gender].length} teams
+                </button>
+              ))}
+            </div>
+            {configuredGenders.length === 0 ? (
+              <section className="auction-config-section">
+                <h2>No teams configured</h2>
+                <p>Add teams to at least one enabled competition before saving auction rules.</p>
+              </section>
+            ) : (() => {
+              const gender = configuredGenders.includes(auctionGender) ? auctionGender : configuredGenders[0];
               const form = auctionForms[gender];
               return (
                 <section className="auction-config-section" key={gender}>
@@ -454,13 +626,25 @@ export default function TournamentSetupWizard() {
                     <label>Bid increment<input type="number" min="1" value={form.bidIncrement} onChange={(event) => setAuctionForm(gender, { bidIncrement: event.target.value })} /></label>
                   </div>
                   {configs[gender] && <p className="tournament-help">Saved: {configs[gender]!.teamIds.length} teams, {formatMoney(configs[gender]!.pursePerTeam)} purse.</p>}
+                  {categoryRules[gender].enabled ? (
+                    <p className="tournament-help">Category pricing is enabled: A/B/C base prices are applied to imported players, and each team may buy at most {categoryRules[gender].maxPremiumPlayersPerTeam} combined A/B/C players. Icon assignments follow this step.</p>
+                  ) : (
+                    <p className="tournament-help">Category pricing is off for this competition. Turn it on in the Teams step before importing players to enable category prices and icon assignments.</p>
+                  )}
                 </section>
               );
-            })}
+            })()}
+            {enabledGenders.some((gender) => teams[gender].length === 0) && (
+              <p className="tournament-help">Competitions without teams are skipped. You can add their teams and configure their auctions later.</p>
+            )}
             <div className="tournament-actions">
               <button className="button button-outline" type="button" onClick={() => setStep(1)}>Back</button>
-              <button className="button button-dark" type="button" disabled={saving || !enabledGenders.some((gender) => teams[gender].length > 0) || enabledGenders.some((gender) => teams[gender].length > 0 && (auctionForms[gender].teamIds.length === 0 || Boolean(configs[gender]?.playerPoolIds)))} onClick={() => void saveAuctionConfigs()}>
-                {saving ? "Saving..." : allConfigsSaved() ? "Save and continue" : "Save auction settings"}
+              <button className="button button-dark" type="button" disabled={saving || configuredGenders.length === 0 || configuredGenders.some((gender) => auctionForms[gender].teamIds.length === 0 || Boolean(configs[gender]?.playerPoolIds))} onClick={() => void saveAuctionConfigs()}>
+                {saving
+                  ? "Saving..."
+                  : iconGenders.length > 0
+                    ? allConfigsSaved() ? "Save and continue to icon players" : "Save auction settings"
+                    : "Save auction settings and finish"}
               </button>
             </div>
           </>
@@ -468,14 +652,28 @@ export default function TournamentSetupWizard() {
 
         {currentStepName === "Icon players" && (
           <>
-            {iconGenders.map((gender) => {
+            <div className="setup-gender-tabs" role="tablist" aria-label="Icon player competition">
+              {iconGenders.map((gender) => (
+                <button
+                  aria-selected={iconGender === gender}
+                  className={iconGender === gender ? "button button-dark" : "button button-outline"}
+                  key={gender}
+                  role="tab"
+                  type="button"
+                  onClick={() => setIconGender(gender)}
+                >
+                  {label(gender)} icons
+                </button>
+              ))}
+            </div>
+            {iconGenders.filter((gender) => gender === iconGender).map((gender) => {
               const configuredTeams = teams[gender].filter((team) => configs[gender]?.teamIds.includes(team.id));
               const availablePlayers = players.filter((player) =>
                 player.gender === gender
                 && player.tournament?.status === "available"
                 && normalizeTournamentPlayerCategory(player.category) !== null,
               );
-              const rules = tournament.competitions[gender].categoryRules!;
+              const rules = categoryRules[gender];
               const locked = players.some((player) => player.gender === gender && player.tournament?.iconPurchase);
               return (
                 <section className="auction-config-section" key={gender}>

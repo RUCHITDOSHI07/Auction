@@ -68,7 +68,7 @@ export default function ExcelUpload({ importEndpoint="/api/players/import", back
     <div className="upload-card"><div className="upload-placeholder"><span>⇪</span><strong>Upload Excel File</strong><small>One file can contain both Male and Female players.</small></div><div className="upload-actions">
       <input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" hidden onChange={function(e){const file=e.target.files?.[0];if(file)void handleFile(file);e.target.value="";}}/>
       <button className="button button-dark" type="button" onClick={function(){fileInput.current?.click();}} disabled={processing}>{processing?"Processing...":"Select file"}</button>
-      <button className="button button-outline" type="button">Download template</button>
+      <a className="button button-outline" href="/player-import-template.xlsx" download="cricket-auction-player-import-template.xlsx">Download Excel template</a>
     </div></div>
     <div className="import-summary-grid"><div className="mini-stat"><label>Players found</label><strong>{summary.found}</strong></div><div className="mini-stat success"><label>Valid</label><strong>{summary.valid}</strong></div><div className="mini-stat warning"><label>Warnings</label><strong>{summary.warnings}</strong></div><div className="mini-stat danger"><label>Errors</label><strong>{summary.errors}</strong></div></div>
     {message&&<p>{message}</p>}
