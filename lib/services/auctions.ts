@@ -9,18 +9,27 @@ import type { MongoPlayer } from "@/lib/services/players";
 import { calculateTeamAuctionBudget } from "@/lib/auction/calculations";
 import { auctionResultDisplayMs } from "@/lib/auction/results";
 import { getEffectiveAuctionPurchases } from "@/lib/auction/transactions";
+import {
+  canAddPremiumPlayer,
+  getTournamentCategoryBasePrice,
+  isPremiumPlayerCategory,
+  normalizeTournamentPlayerCategory,
+} from "@/lib/auction/category-rules";
+import type { TournamentCategoryRules } from "@/types/tournament";
 
 type AuctionDocument = AuctionConfig & { _id?: unknown };
 type TournamentPlayerDocument = {
   tournamentId: string;
   playerId: string;
   gender: CompetitionGender;
+  category?: string;
   basePrice: number;
   status: "available" | "on_auction" | "sold" | "unsold";
   teamId?: string;
   soldPrice?: number;
   soldRound?: number;
   auctionId?: string;
+  iconPurchase?: boolean;
   lastAuctionRound?: number;
   createdAt: Date;
   updatedAt: Date;
@@ -39,6 +48,8 @@ type AuctionTransactionDocument = {
   amount: number;
   round: number;
   type?: "purchase" | "reversal" | "correction";
+  source?: "auction" | "icon";
+  category?: string;
   createdAt: Date;
 };
 type AuctionHistoryEvent = {
@@ -67,6 +78,8 @@ export type AuctionTeamView = Team & {
   maximumAffordableBid: number;
   minimumNextBid: number;
   canPlaceNextBid: boolean;
+  premiumPlayersCount: number;
+  premiumPlayersLimit?: number;
 };
 
 let purchaseIndexPromise: Promise<string> | undefined;
@@ -161,10 +174,25 @@ async function getTeamViews(
   const transactions = await collections.transactions
     .find({ auctionId: auction.id }, {
       session,
-      projection: { transactionId: 1, reversesTransactionId: 1, type: 1, teamId: 1, amount: 1 },
+      projection: { transactionId: 1, reversesTransactionId: 1, type: 1, teamId: 1, amount: 1, playerId: 1, category: 1 },
     })
     .toArray();
   const purchases = getEffectiveAuctionPurchases(transactions, excludeTransactionId);
+  const missingCategories = purchases.filter((purchase) => !purchase.category).map((purchase) => purchase.playerId);
+  const fallbackCategories = missingCategories.length
+    ? await collections.players.find(
+        { id: { $in: missingCategories } },
+        { session, projection: { id: 1, category: 1 } },
+      ).toArray()
+    : [];
+  const categoryByPlayerId = new Map(fallbackCategories.map((player) => [player.id, player.category]));
+  const currentPlayer = auction.categoryRules?.enabled && auction.currentPlayerId
+    ? await collections.tournamentPlayers.findOne(
+        { tournamentId: auction.tournamentId, gender: auction.gender, playerId: auction.currentPlayerId },
+        { session, projection: { playerId: 1, category: 1 } },
+      )
+    : null;
+  const currentPlayerIsPremium = isPremiumPlayerCategory(currentPlayer?.category);
   const remainingPlayers = poolIds.length
     ? await collections.tournamentPlayers
         .find({
@@ -176,11 +204,21 @@ async function getTeamViews(
         .toArray()
     : [];
 
-  const basePrices = remainingPlayers
-    .filter((player) => player.status === "available" || (player.lastAuctionRound ?? 0) < (auction.currentRound ?? 1))
-    .map((player) => player.basePrice);
+  const eligiblePlayers = remainingPlayers.filter(
+    (player) => player.status === "available" || (player.lastAuctionRound ?? 0) < (auction.currentRound ?? 1),
+  );
   return teams.map((team) => {
     const teamPurchases = purchases.filter((purchase) => purchase.teamId === team.id);
+    const premiumPlayersCount = teamPurchases.filter((purchase) =>
+      isPremiumPlayerCategory(purchase.category ?? categoryByPlayerId.get(purchase.playerId)),
+    ).length;
+    const premiumPlayersAfterCurrent = premiumPlayersCount
+      + (currentPlayerIsPremium && premiumPlayersCount < (auction.categoryRules?.maxPremiumPlayersPerTeam ?? 0) ? 1 : 0);
+    const canBuyMorePremiumPlayers = !auction.categoryRules?.enabled
+      || premiumPlayersAfterCurrent < auction.categoryRules.maxPremiumPlayersPerTeam;
+    const basePrices = eligiblePlayers
+      .filter((player) => canBuyMorePremiumPlayers || !isPremiumPlayerCategory(player.category))
+      .map((player) => player.basePrice);
     const budget = calculateTeamAuctionBudget({
       startingPurse: auction.pursePerTeam,
       completedSpend: teamPurchases.reduce((total, purchase) => total + purchase.amount, 0),
@@ -205,7 +243,13 @@ async function getTeamViews(
       minimumReserve: Number.isFinite(budget.minimumReserve) ? budget.minimumReserve : null,
       maximumAffordableBid: budget.maximumAffordableBid,
       minimumNextBid: budget.minimumNextBid,
-      canPlaceNextBid: budget.canPlaceNextBid,
+      premiumPlayersCount,
+      ...(auction.categoryRules?.enabled
+        ? { premiumPlayersLimit: auction.categoryRules.maxPremiumPlayersPerTeam }
+        : {}),
+      canPlaceNextBid: budget.canPlaceNextBid
+        && !(currentPlayerIsPremium && auction.categoryRules?.enabled
+          && premiumPlayersCount >= auction.categoryRules.maxPremiumPlayersPerTeam),
     };
   });
 }
@@ -268,6 +312,7 @@ export async function getAuctionRoom(
   const currentPlayer = player && tournamentPlayer
     ? {
         ...(withoutId(player) as MongoPlayer),
+        category: tournamentPlayer.category ?? player.category,
         auctionBasePrice: tournamentPlayer.basePrice,
         auctionStatus: tournamentPlayer.status,
       }
@@ -328,8 +373,15 @@ export async function initializeAuction(
   if (pool.some((player) => !Number.isFinite(player.basePrice) || player.basePrice < 0)) {
     throw new Error("Every eligible player must have a valid non-negative base price.");
   }
-  if (pool.length < teams.length * auction.minimumSquadSize) {
-    throw new Error("The eligible player pool is too small to satisfy every team's minimum squad size.");
+  const priorPurchases = getEffectiveAuctionPurchases(
+    await collections.transactions.find({ auctionId: auction.id }).toArray(),
+  );
+  const playersNeeded = teams.reduce((needed, team) => {
+    const alreadyPurchased = priorPurchases.filter((purchase) => purchase.teamId === team.id).length;
+    return needed + Math.max(0, auction.minimumSquadSize - alreadyPurchased);
+  }, 0);
+  if (pool.length < playersNeeded) {
+    throw new Error("The eligible player pool is too small to satisfy the remaining minimum squad places.");
   }
 
   const masterPlayers = await collections.players
@@ -549,6 +601,7 @@ export async function sellCurrentAuctionPlayer(auctionId: string, admin: AdminUs
       if (!storedTeam) throw new Error("Highest-bid team is not active in this tournament competition.");
       if (!Number.isFinite(entry.basePrice) || entry.basePrice < 0) throw new Error("Current player has an invalid base price.");
       if (!Number.isFinite(amount) || amount < entry.basePrice) throw new Error("Confirmed sale price is below the player's base price.");
+      const playerCategory = entry.category ?? player.category;
       if (await collections.transactions.findOne({ auctionId, playerId, type: "purchase" }, { session })) {
         throw new Error("This player already has a purchase record for this auction.");
       }
@@ -556,6 +609,10 @@ export async function sellCurrentAuctionPlayer(auctionId: string, admin: AdminUs
       const teamView = (await getTeamViews(collections, auction, session)).find((team) => team.id === teamId);
       if (!teamView) throw new Error("Highest-bid team is not eligible for this auction.");
       if (teamView.playersCount >= auction.maximumSquadSize) throw new Error("Highest-bid team has reached the maximum squad size.");
+      if (auction.categoryRules?.enabled
+        && !canAddPremiumPlayer(playerCategory, teamView.premiumPlayersCount, auction.categoryRules.maxPremiumPlayersPerTeam)) {
+        throw new Error("This team has reached its limit of A/B/C category players.");
+      }
       if (amount > teamView.remainingBudget) throw new Error("Confirmed sale price exceeds the team's available budget.");
       if (amount > teamView.maximumAffordableBid) throw new Error("Confirmed sale price would prevent the team from filling its minimum squad.");
 
@@ -616,6 +673,8 @@ export async function sellCurrentAuctionPlayer(auctionId: string, admin: AdminUs
         amount,
         round: auction.currentRound ?? 1,
         type: "purchase",
+        source: "auction",
+        category: normalizeTournamentPlayerCategory(playerCategory) ?? playerCategory,
         createdAt: now,
       }, { session });
       const auctionUpdate = await collections.auctions.updateOne(
@@ -786,10 +845,11 @@ export async function previewLatestSaleCorrection(auctionId: string, saleEventId
   });
   const player = await collections.players.findOne({ id: event.playerId }, { projection: { id: 1, name: 1, fullName: 1, role: 1, category: 1, age: 1 } });
   if (!entry || !player) throw new Error("Current sale player is missing or changed; correction is unsafe.");
+  const playerCategory = entry.category ?? player.category;
   const teams = await getTeamViews(collections, auction, undefined, transaction.transactionId);
   return {
     eventId: event.eventId,
-    player: { id: player.id, name: player.name ?? player.fullName ?? "Unnamed player", role: player.role, category: player.category },
+    player: { id: player.id, name: player.name ?? player.fullName ?? "Unnamed player", role: player.role, category: playerCategory },
     currentTeamId: transaction.teamId,
     currentAmount: transaction.amount,
     basePrice: entry.basePrice,
@@ -800,7 +860,12 @@ export async function previewLatestSaleCorrection(auctionId: string, saleEventId
       remainingBudget: team.remainingBudget,
       playersCount: team.playersCount,
       maximumAffordableBid: team.maximumAffordableBid,
-      eligible: team.playersCount < auction.maximumSquadSize,
+      eligible: team.playersCount < auction.maximumSquadSize
+        && !(auction.categoryRules?.enabled
+          && isPremiumPlayerCategory(playerCategory)
+          && !canAddPremiumPlayer(playerCategory, team.premiumPlayersCount, auction.categoryRules.maxPremiumPlayersPerTeam)),
+      premiumPlayersCount: team.premiumPlayersCount,
+      premiumPlayersLimit: team.premiumPlayersLimit,
     })),
   };
 }
@@ -860,6 +925,9 @@ export async function correctLatestAuctionSale(
       if (!entry || !Number.isFinite(entry.basePrice) || correctedAmount < entry.basePrice) {
         throw new Error("The sold player is unavailable or the corrected price is below base price.");
       }
+      const player = await collections.players.findOne({ id: playerId }, { session, projection: { id: 1, category: 1 } });
+      if (!player) throw new Error("Sale player is unavailable for category-rule validation.");
+      const playerCategory = entry.category ?? player.category;
 
       const currentTeam = await collections.teams.findOne({ id: transaction.teamId, tournamentId: auction.tournamentId, gender: auction.gender }, { session });
       const correctedTeam = await collections.teams.findOne({ id: correctedTeamId, tournamentId: auction.tournamentId, gender: auction.gender, status: "active" }, { session });
@@ -870,6 +938,10 @@ export async function correctLatestAuctionSale(
       const correctedBaseline = baselineTeams.find((team) => team.id === correctedTeam.id);
       if (!originalBaseline || !correctedBaseline) throw new Error("A team is no longer eligible; automatic correction is unsafe.");
       if (correctedBaseline.playersCount >= auction.maximumSquadSize) throw new Error("Corrected team has reached the maximum squad size.");
+      if (auction.categoryRules?.enabled
+        && !canAddPremiumPlayer(playerCategory, correctedBaseline.premiumPlayersCount, auction.categoryRules.maxPremiumPlayersPerTeam)) {
+        throw new Error("Corrected team has reached its limit of A/B/C category players.");
+      }
       if (correctedAmount > correctedBaseline.remainingBudget || correctedAmount > correctedBaseline.maximumAffordableBid) {
         throw new Error("Corrected team cannot afford this price while preserving its minimum squad reserve.");
       }
@@ -939,6 +1011,8 @@ export async function correctLatestAuctionSale(
         amount: correctedAmount,
         round: auction.currentRound ?? 1,
         type: "correction",
+        source: "auction",
+        category: normalizeTournamentPlayerCategory(playerCategory) ?? playerCategory,
         createdAt: correctionEvent.createdAt,
       }, { session });
       const correctedResult = auction.lastResult
@@ -973,6 +1047,188 @@ export async function correctLatestAuctionSale(
   const auction = await collections.auctions.findOne({ id: auctionId });
   if (!auction) throw new Error("Auction not found after correction.");
   return getAuctionRoom(auction.tournamentId, auction.gender);
+}
+
+export async function assignPreAuctionIconPlayers(
+  tournamentId: string,
+  gender: CompetitionGender,
+  assignments: Array<{ teamId: string; playerId: string }>,
+  admin: AdminUser,
+) {
+  const collections = await getCollections();
+  await ensurePurchaseIndex(collections.transactions);
+  await ensureHistoryIndexes(collections.history);
+  const auction = await collections.auctions.findOne({ tournamentId, gender });
+  if (!auction) throw new Error("Configure the auction before assigning icon players.");
+  if (auction.status !== "draft" || auction.playerPoolIds) {
+    throw new Error("Icon players must be assigned before auction initialization.");
+  }
+  const rules: TournamentCategoryRules | undefined = auction.categoryRules;
+  if (!rules?.enabled) throw new Error("Category rules are not enabled for this competition.");
+  if (!Array.isArray(assignments)) throw new Error("Icon player assignments must be a list.");
+  if (assignments.length === 0) {
+    const existing = await collections.transactions.findOne({ auctionId: auction.id, source: "icon", type: "purchase" });
+    if (existing) throw new Error("Icon players have already been assigned for this competition.");
+    return { assigned: 0 };
+  }
+
+  const assignedTeamIds = assignments.map((assignment) => assignment.teamId);
+  const assignedPlayerIds = assignments.map((assignment) => assignment.playerId);
+  if (assignedTeamIds.some((id) => typeof id !== "string" || !id.trim())
+    || assignedPlayerIds.some((id) => typeof id !== "string" || !id.trim())) {
+    throw new Error("Each icon assignment must include a team and player.");
+  }
+  if (new Set(assignedTeamIds).size !== assignments.length) {
+    throw new Error("Each team can assign at most one pre-auction icon player.");
+  }
+  if (new Set(assignedPlayerIds).size !== assignments.length) {
+    throw new Error("A player can only be assigned to one team.");
+  }
+
+  const session = collections.database.client.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const existing = await collections.transactions.findOne({
+        auctionId: auction.id,
+        source: "icon",
+        type: "purchase",
+      }, { session });
+      if (existing) throw new Error("Icon players have already been assigned for this competition.");
+
+      const teams = await collections.teams.find({
+        id: { $in: assignedTeamIds },
+        tournamentId,
+        gender,
+        status: "active",
+      }, { session }).toArray();
+      if (teams.length !== assignments.length
+        || assignedTeamIds.some((teamId) => !auction.teamIds.includes(teamId))) {
+        throw new Error("Icon assignments must use active teams configured for this auction.");
+      }
+
+      const previousPurchases = getEffectiveAuctionPurchases(
+        await collections.transactions.find({ auctionId: auction.id }, { session }).toArray(),
+      );
+      const players = await collections.tournamentPlayers.find({
+        tournamentId,
+        gender,
+        playerId: { $in: assignedPlayerIds },
+        status: "available",
+      }, { session }).toArray();
+      if (players.length !== assignments.length) {
+        throw new Error("Every icon player must be available in this tournament competition.");
+      }
+      const masterPlayers = await collections.players.find({
+        id: { $in: assignedPlayerIds },
+      }, { session }).toArray();
+      const playersById = new Map(masterPlayers.map((player) => [player.id, player]));
+      const tournamentPlayersById = new Map(players.map((player) => [player.playerId, player]));
+      const teamsById = new Map(teams.map((team) => [team.id, team]));
+      const purchasesByTeam = new Map<string, typeof previousPurchases>();
+      for (const purchase of previousPurchases) {
+        const list = purchasesByTeam.get(purchase.teamId) ?? [];
+        list.push(purchase);
+        purchasesByTeam.set(purchase.teamId, list);
+      }
+
+      const prepared = assignments.map((assignment) => {
+        const player = playersById.get(assignment.playerId);
+        const tournamentPlayer = tournamentPlayersById.get(assignment.playerId);
+        const team = teamsById.get(assignment.teamId);
+        if (!player || player.gender !== gender || !tournamentPlayer || !team) {
+          throw new Error("An icon player or team does not belong to this tournament competition.");
+        }
+        const category = normalizeTournamentPlayerCategory(tournamentPlayer.category ?? player.category);
+        if (!category) throw new Error(`Player ${player.name ?? player.id} must have category A, B, C, or General.`);
+        const amount = category === "General"
+          ? rules.generalIconPrice
+          : getTournamentCategoryBasePrice(category, rules.basePrices);
+        const teamPurchases = purchasesByTeam.get(team.id) ?? [];
+        const premiumCount = teamPurchases.filter((purchase) =>
+          isPremiumPlayerCategory(purchase.category),
+        ).length;
+        const alreadyAssignedIcon = teamPurchases.some((purchase) => purchase.source === "icon");
+        if (alreadyAssignedIcon) throw new Error(`${team.name} already has a pre-auction icon player.`);
+        if (!canAddPremiumPlayer(category, premiumCount, rules.maxPremiumPlayersPerTeam)) {
+          throw new Error(`${team.name} has reached its A/B/C category player limit.`);
+        }
+        if (teamPurchases.length >= auction.maximumSquadSize) {
+          throw new Error(`${team.name} has reached its maximum squad size.`);
+        }
+        const spend = teamPurchases.reduce((total, purchase) => total + purchase.amount, 0);
+        if (amount > auction.pursePerTeam - spend) {
+          throw new Error(`${team.name} does not have enough remaining purse for this icon player.`);
+        }
+        return { assignment, player, tournamentPlayer, team, category, amount };
+      });
+
+      const now = new Date();
+      for (const item of prepared) {
+        const event = await appendHistory(collections, auction, "PLAYER_ICON_ASSIGNED", session, admin, {
+          playerId: item.player.id,
+          teamId: item.team.id,
+          amount: item.amount,
+          after: { status: "sold", source: "icon", category: item.category },
+        });
+        await collections.tournamentPlayers.updateOne(
+          {
+            tournamentId,
+            gender,
+            playerId: item.player.id,
+            status: "available",
+          },
+          {
+            $set: {
+              status: "sold",
+              teamId: item.team.id,
+              soldPrice: item.amount,
+              soldRound: 0,
+              auctionId: auction.id,
+              iconPurchase: true,
+              category: item.category,
+              updatedAt: now,
+            },
+          },
+          { session },
+        );
+        await collections.transactions.insertOne({
+          transactionId: randomUUID(),
+          eventId: event.eventId,
+          auctionId: auction.id,
+          tournamentId,
+          gender,
+          playerId: item.player.id,
+          teamId: item.team.id,
+          amount: item.amount,
+          round: 0,
+          type: "purchase",
+          source: "icon",
+          category: item.category,
+          createdAt: now,
+        }, { session });
+        const spentBefore = (purchasesByTeam.get(item.team.id) ?? [])
+          .reduce((total, purchase) => total + purchase.amount, 0);
+        const teamUpdate = await collections.teams.updateOne(
+          { id: item.team.id, tournamentId, gender, status: "active" },
+          {
+            $set: {
+              playersCount: (purchasesByTeam.get(item.team.id) ?? []).length + 1,
+              remainingBudget: Math.max(0, auction.pursePerTeam - spentBefore - item.amount),
+              updatedAt: now,
+            },
+          },
+          { session },
+        );
+        if (teamUpdate.modifiedCount !== 1) {
+          throw new Error(`${item.team.name} changed while assigning the icon player.`);
+        }
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return { assigned: assignments.length };
 }
 
 export async function submitAuctionBid(
@@ -1023,6 +1279,7 @@ export async function submitAuctionBid(
       }, { session });
       if (!entry || !player || player.gender !== auction.gender) throw new Error("Current player is not eligible for this auction.");
       if (!Number.isFinite(entry.basePrice) || entry.basePrice < 0) throw new Error("Current player has an invalid base price.");
+      const playerCategory = entry.category ?? player.category;
       if (!team) throw new Error("Selected team is not active in this tournament competition.");
       if (auction.highestTeamId === teamId) {
         throw new Error("The leading team cannot bid twice in a row. Another team must raise the bid first.");
@@ -1032,6 +1289,10 @@ export async function submitAuctionBid(
       const selectedTeam = teamViews.find((candidate) => candidate.id === teamId);
       if (!selectedTeam) throw new Error("Selected team is not eligible for this auction.");
       if (selectedTeam.playersCount >= auction.maximumSquadSize) throw new Error("This team has reached the maximum squad size.");
+      if (auction.categoryRules?.enabled
+        && !canAddPremiumPlayer(playerCategory, selectedTeam.premiumPlayersCount, auction.categoryRules.maxPremiumPlayersPerTeam)) {
+        throw new Error("This team has reached its limit of A/B/C category players.");
+      }
 
       const minimumBid = auction.highestTeamId
         ? auction.currentBid + auction.bidIncrement

@@ -1,4 +1,5 @@
 import type { CompetitionGender } from "@/types/tournament";
+import type { TournamentCategoryRules } from "@/types/tournament";
 
 export interface AuctionResultSnapshot {
   eventId: string;
@@ -24,6 +25,7 @@ export interface AuctionConfig {
   minimumSquadSize: number;
   maximumSquadSize: number;
   bidIncrement: number;
+  categoryRules?: TournamentCategoryRules;
   status: "draft" | "ready" | "live" | "paused" | "completed";
   currentRound?: number;
   roundPlayerIds?: string[];
@@ -61,4 +63,5 @@ export type AuctionConfigInput = Omit<
   | "completedAt"
   | "createdAt"
   | "updatedAt"
+  | "categoryRules"
 >;

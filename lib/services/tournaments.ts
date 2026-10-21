@@ -1,7 +1,17 @@
 import type { Collection, UpdateFilter } from "mongodb";
 import { getMongoDb } from "@/lib/mongodb";
 import { publicRevisionUpdate, publicTournamentAuctionFilter } from "@/lib/auction/public-cache";
-import type { Tournament, TournamentInput, TournamentStatus } from "@/types/tournament";
+import {
+  MAX_PREMIUM_PLAYERS_PER_TEAM,
+  DEFAULT_TOURNAMENT_CATEGORY_PRICES,
+} from "@/lib/auction/category-rules";
+import type {
+  CompetitionGender,
+  Tournament,
+  TournamentCategoryRules,
+  TournamentInput,
+  TournamentStatus,
+} from "@/types/tournament";
 
 type TournamentDocument = Omit<Tournament, "createdAt" | "updatedAt"> & {
   createdAt: Date;
@@ -55,11 +65,41 @@ function validateTournamentInput(input: TournamentInput) {
     throw new Error("Enable at least one competition.");
   }
 
+  const categoryRules = (gender: CompetitionGender): TournamentCategoryRules => {
+    const provided = input.categoryRules?.[gender];
+    const prices = provided?.basePrices ?? DEFAULT_TOURNAMENT_CATEGORY_PRICES;
+    const normalizedPrices = {
+      A: Number(prices.A),
+      B: Number(prices.B),
+      C: Number(prices.C),
+      General: Number(prices.General),
+    };
+    for (const [category, price] of Object.entries(normalizedPrices)) {
+      if (!Number.isSafeInteger(price) || price <= 0) {
+        throw new Error(`${gender === "male" ? "Men's" : "Women's"} ${category} base price must be a positive whole number.`);
+      }
+    }
+    const generalIconPrice = Number(provided?.generalIconPrice ?? 15000);
+    if (!Number.isSafeInteger(generalIconPrice) || generalIconPrice <= 0) {
+      throw new Error(`${gender === "male" ? "Men's" : "Women's"} General icon price must be a positive whole number.`);
+    }
+    return {
+      enabled: Boolean(provided?.enabled),
+      basePrices: normalizedPrices,
+      generalIconPrice,
+      maxPremiumPlayersPerTeam: MAX_PREMIUM_PLAYERS_PER_TEAM,
+    };
+  };
+
   return {
     name,
     season,
     description: input.description?.trim() || undefined,
     competitions: { male, female },
+    categoryRules: {
+      male: categoryRules("male"),
+      female: categoryRules("female"),
+    },
   };
 }
 
@@ -102,8 +142,8 @@ export async function createTournament(input: TournamentInput): Promise<Tourname
     ...(normalized.description ? { description: normalized.description } : {}),
     status: "draft",
     competitions: {
-      male: { enabled: normalized.competitions.male },
-      female: { enabled: normalized.competitions.female },
+      male: { enabled: normalized.competitions.male, categoryRules: normalized.categoryRules.male },
+      female: { enabled: normalized.competitions.female, categoryRules: normalized.categoryRules.female },
     },
     createdAt: now,
     updatedAt: now,
@@ -141,8 +181,16 @@ export async function updateTournament(
       description: changes.description?.trim() || existing.description,
       status: changes.status ?? existing.status,
       competitions: {
-        male: { enabled: nextMale },
-        female: { enabled: nextFemale },
+        male: {
+          ...existing.competitions.male,
+          enabled: nextMale,
+          ...(changes.categoryRules?.male ? { categoryRules: changes.categoryRules.male } : {}),
+        },
+        female: {
+          ...existing.competitions.female,
+          enabled: nextFemale,
+          ...(changes.categoryRules?.female ? { categoryRules: changes.categoryRules.female } : {}),
+        },
       },
       updatedAt: new Date(),
     },

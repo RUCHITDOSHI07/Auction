@@ -19,7 +19,7 @@ type AuctionPlayer = Pick<Player, "id" | "name" | "role" | "category" | "age" | 
 type AuctionRoom = {
   auction: AuctionConfig | null;
   currentPlayer: AuctionPlayer | null;
-  teams: (Team & { playersNeeded: number; minimumReserve: number | null; maximumAffordableBid: number; minimumNextBid: number; canPlaceNextBid: boolean })[];
+  teams: (Team & { playersNeeded: number; minimumReserve: number | null; maximumAffordableBid: number; minimumNextBid: number; canPlaceNextBid: boolean; premiumPlayersCount: number; premiumPlayersLimit?: number })[];
   playerCount: number;
   roundTotal: number;
   roundSoldCount: number;
@@ -450,7 +450,7 @@ function AdminAuctionContent() {
                     return <button className={`team-bid-card${team.id === auction.highestTeamId ? " leading" : ""}`} key={team.id} type="button" disabled={saving || !canBid} onClick={() => void submitBid(team.id, bidAmount ? bid : undefined)} aria-label={`${team.name}, bid ${formatMoney(bid)}`}>
                       <span className="team-bid-top"><span className="team-logo">{team.shortName}</span>{team.id === auction.highestTeamId && <StatusBadge tone="live">LEADING</StatusBadge>}</span>
                       <strong>{team.name}</strong>
-                      <span className="team-bid-metrics">{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players</span>
+                      <span className="team-bid-metrics">{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players{team.premiumPlayersLimit !== undefined ? ` · A/B/C ${team.premiumPlayersCount}/${team.premiumPlayersLimit}` : ""}</span>
                       <span className="team-bid-next">{saving && pendingBidTeamId === team.id ? "Saving bid..." : `Bid ${formatMoney(bid)}`}</span>
                       <span className="team-bid-limit"><b>MAX BID</b> {formatMoney(team.maximumAffordableBid)}<small> after minimum-squad reserve</small></span>
                     </button>;
@@ -469,7 +469,7 @@ function AdminAuctionContent() {
                 <span className="team-logo">{team.shortName}</span>
                 <div>
                   <b>{team.name}</b>
-                  <small>{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players</small>
+                  <small>{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players{team.premiumPlayersLimit !== undefined ? ` · A/B/C ${team.premiumPlayersCount}/${team.premiumPlayersLimit}` : ""}</small>
                   <small className="team-board-max-bid">MAX BID {formatMoney(team.maximumAffordableBid)}</small>
                 </div>
               </div>

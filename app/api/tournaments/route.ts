@@ -35,6 +35,7 @@ export async function POST(request: Request) {
         male: Boolean(body.competitions?.male),
         female: Boolean(body.competitions?.female),
       },
+      categoryRules: body.categoryRules,
     });
 
     return NextResponse.json({ tournament }, { status: 201 });

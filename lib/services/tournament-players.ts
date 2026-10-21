@@ -5,15 +5,18 @@ import { normalizePlayerGender } from "@/lib/players";
 import { getPlayerById } from "@/lib/services/players";
 import type { CompetitionGender } from "@/types/tournament";
 import type { PlayerInput } from "@/types/firestore";
+import { getTournamentCategoryBasePrice } from "@/lib/auction/category-rules";
 
 export interface TournamentPlayer {
   tournamentId: string;
   playerId: string;
   gender: CompetitionGender;
+  category?: string;
   basePrice: number;
   status: "available" | "on_auction" | "sold" | "unsold";
   teamId?: string;
   soldPrice?: number;
+  iconPurchase?: boolean;
   createdAt: Date;
   updatedAt: Date;
   auctionId?: string;
@@ -50,7 +53,18 @@ export async function getTournamentPlayers(tournamentId: string, gender?: Compet
   const entries = await c.find(filter).sort({ createdAt: 1 }).toArray();
   const players = await Promise.all(entries.map(async (entry) => {
     const player = await getPlayerById(entry.playerId);
-    return player ? { ...player, gender: entry.gender, tournament: { basePrice: entry.basePrice, status: entry.status, teamId: entry.teamId, soldPrice: entry.soldPrice } } : null;
+    return player ? {
+      ...player,
+      gender: entry.gender,
+      ...(entry.category ? { category: entry.category } : {}),
+      tournament: {
+        basePrice: entry.basePrice,
+        status: entry.status,
+        teamId: entry.teamId,
+        soldPrice: entry.soldPrice,
+        iconPurchase: entry.iconPurchase,
+      },
+    } : null;
   }));
   return players.filter(Boolean);
 }
@@ -80,25 +94,41 @@ export async function importPlayersIntoTournament(tournamentId: string, inputs: 
   let created = 0;
   let linked = 0;
 
+  const existingPlayers = await getPlayers();
   for (const input of inputs) {
     const gender = cleanGender(input.gender);
     const key = `${(input.fullName ?? input.name ?? "").trim().toLowerCase()}|${(input.phoneNumber ?? "").trim().replace(/\D/g, "")}`;
     if (seen.has(key)) { duplicateRows += 1; continue; }
     seen.add(key);
 
-    const existingPlayers = await getPlayers();
     const existing = existingPlayers.find((p) =>
       (p.name ?? "").trim().toLowerCase() === (input.fullName ?? input.name ?? "").trim().toLowerCase() &&
       (p.phoneNumber ?? "").trim().replace(/\D/g, "") === (input.phoneNumber ?? "").trim().replace(/\D/g, "")
     );
+    const categoryRules = tournament.competitions[gender].categoryRules;
+    const basePrice = categoryRules?.enabled
+      ? getTournamentCategoryBasePrice(input.category, categoryRules.basePrices)
+      : Number(input.basePrice ?? 0);
+    if (!Number.isSafeInteger(basePrice) || basePrice < 0) {
+      throw new Error(`Player "${input.fullName ?? input.name ?? "unknown"}" must have a non-negative whole-number base price.`);
+    }
     const playerId = existing?.id ?? await createPlayer(input);
     if (!existing) created += 1;
 
-    const basePrice = Number(input.basePrice ?? 0);
     const now = new Date();
     const result = await c.updateOne(
       { tournamentId, playerId },
-      { $set: { tournamentId, playerId, gender, basePrice: Number.isFinite(basePrice) ? basePrice : 0, updatedAt: now }, $setOnInsert: { status: "available", createdAt: now } },
+      {
+        $set: {
+          tournamentId,
+          playerId,
+          gender,
+          category: input.category?.trim() || existing?.category || "Uncategorized",
+          basePrice,
+          updatedAt: now,
+        },
+        $setOnInsert: { status: "available", createdAt: now },
+      },
       { upsert: true },
     );
     if (result.upsertedCount) linked += 1;

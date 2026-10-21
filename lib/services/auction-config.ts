@@ -43,13 +43,25 @@ async function validate(input: AuctionConfigInput) {
   const maximumSquadSize = cleanNumber(input.maximumSquadSize, "Maximum squad size", true);
   const bidIncrement = cleanNumber(input.bidIncrement, "Bid increment");
   if (minimumSquadSize > maximumSquadSize) throw new Error("Minimum squad size cannot exceed maximum squad size.");
-  return { tournamentId: input.tournamentId, gender, teamIds, pursePerTeam, minimumSquadSize, maximumSquadSize, bidIncrement };
+  return {
+    tournamentId: input.tournamentId,
+    gender,
+    teamIds,
+    pursePerTeam,
+    minimumSquadSize,
+    maximumSquadSize,
+    bidIncrement,
+    ...(tournament.competitions[gender].categoryRules?.enabled
+      ? { categoryRules: tournament.competitions[gender].categoryRules }
+      : {}),
+  };
 }
 export async function getAuctionConfig(tournamentId: string, gender: CompetitionGender) {
   const c = await collection(); await ensureIndexes(c);
   const doc = await c.findOne({ tournamentId, gender });
   if (!doc) return null;
-  const { _id: _ignoredId, ...config } = doc;
+  const config = { ...doc };
+  Reflect.deleteProperty(config, "_id");
   return config;
 }
 export async function saveAuctionConfig(input: AuctionConfigInput) {

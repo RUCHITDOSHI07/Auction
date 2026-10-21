@@ -4,14 +4,17 @@ import type { CompetitionGender } from "@/types/tournament";
 
 type AuctionRecord = { id: string; tournamentId: string; gender: CompetitionGender; status: string; currentRound?: number; playerPoolIds?: string[] };
 type TournamentPlayerRecord = {
+  auctionId?: string;
   playerId: string;
   gender: CompetitionGender;
+  category?: string;
   status: "available" | "on_auction" | "sold" | "unsold";
   basePrice: number;
   teamId?: string;
   soldPrice?: number;
   soldRound?: number;
   lastAuctionRound?: number;
+  iconPurchase?: boolean;
 };
 
 export type AuctionResultsReport = {
@@ -26,8 +29,8 @@ export type AuctionResultsReport = {
   soldCount: number;
   unsoldCount: number;
   totalSpend: number;
-  highestSale: null | { id: string; name: string; role: string | null; category: string | null; status: string; basePrice: number; teamId: string | null; teamName: string | null; teamShortName: string | null; soldPrice: number | null; round: number | null };
-  players: { id: string; name: string; role: string | null; category: string | null; status: string; basePrice: number; teamId: string | null; teamName: string | null; teamShortName: string | null; soldPrice: number | null; round: number | null }[];
+  highestSale: null | { id: string; name: string; role: string | null; category: string | null; status: string; basePrice: number; teamId: string | null; teamName: string | null; teamShortName: string | null; soldPrice: number | null; round: number | null; iconPurchase: boolean };
+  players: { id: string; name: string; role: string | null; category: string | null; status: string; basePrice: number; teamId: string | null; teamName: string | null; teamShortName: string | null; soldPrice: number | null; round: number | null; iconPurchase: boolean }[];
   teams: { id: string; name: string; shortName: string; startingPurse: number; remainingBudget: number; spent: number; playersCount: number; maximumSquadSize: number }[];
 };
 
@@ -44,8 +47,11 @@ export async function getAuctionResults(tournamentId?: string, gender?: Competit
       database.collection<TournamentPlayerRecord>("tournamentPlayers").find({
         tournamentId: auction.tournamentId,
         gender: auction.gender,
-        playerId: { $in: auction.playerPoolIds ?? [] },
         status: { $in: ["sold", "unsold"] },
+        $or: [
+          { playerId: { $in: auction.playerPoolIds ?? [] } },
+          { auctionId: auction.id, iconPurchase: true },
+        ],
       }).toArray(),
     ]);
     const playerIds = entries.map((entry) => entry.playerId);
@@ -62,14 +68,15 @@ export async function getAuctionResults(tournamentId?: string, gender?: Competit
       id: entry.playerId,
       name: playerById.get(entry.playerId)?.name ?? playerById.get(entry.playerId)?.fullName ?? "Unnamed player",
       role: playerById.get(entry.playerId)?.role ?? null,
-      category: playerById.get(entry.playerId)?.category ?? null,
+      category: entry.category ?? playerById.get(entry.playerId)?.category ?? null,
       status: entry.status,
       basePrice: entry.basePrice,
       teamId: entry.teamId ?? null,
       teamName: entry.teamId ? teamById.get(entry.teamId)?.name ?? null : null,
       teamShortName: entry.teamId ? teamById.get(entry.teamId)?.shortName ?? null : null,
       soldPrice: entry.soldPrice ?? null,
-      round: entry.status === "sold" ? entry.soldRound ?? null : entry.lastAuctionRound ?? null,
+      round: entry.iconPurchase ? null : entry.status === "sold" ? entry.soldRound ?? null : entry.lastAuctionRound ?? null,
+      iconPurchase: entry.iconPurchase ?? false,
     }));
     const soldPlayers = playersResult.filter((player) => player.status === "sold");
     const teamSummary = room.teams.map((team) => ({
@@ -90,7 +97,7 @@ export async function getAuctionResults(tournamentId?: string, gender?: Competit
       gender: auction.gender,
       status: auction.status,
       currentRound: auction.currentRound ?? null,
-      totalPlayers: auction.playerPoolIds?.length ?? 0,
+      totalPlayers: (auction.playerPoolIds?.length ?? 0) + entries.filter((entry) => entry.iconPurchase).length,
       soldCount: soldPlayers.length,
       unsoldCount: playersResult.filter((player) => player.status === "unsold").length,
       totalSpend: teamSummary.reduce((sum, team) => sum + team.spent, 0),

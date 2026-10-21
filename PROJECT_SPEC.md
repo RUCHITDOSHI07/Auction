@@ -175,6 +175,16 @@ Tournament
     └── Results
 ```
 
+## Optional category pricing and roster limits
+
+Tournament creation may independently enable category pricing for the men's and women's competitions. When enabled, the tournament stores category base prices (defaults: A = 50,000, B = 40,000, C = 30,000, General = 1,000) and applies them to each imported tournament-player record using the Excel `Category` value. These prices are tournament-specific; they must not overwrite permanent player master data.
+
+The enabled competition may optionally assign one icon player to each team before auction initialization. A/B/C icon players cost their configured category base price. A General icon player's price is separately configurable by the tournament creator (default 15,000). Each icon assignment is a canonical purchase: it is recorded in the tournament-player state, auction transaction ledger, and auction history; deducts from the team's purse; counts toward its squad size; and is excluded from the remaining auction pool.
+
+When category rules are enabled, a team may acquire at most two players combined from categories A, B, and C. This limit includes pre-auction icon purchases and must be enforced by server-side bid, sale, and sale-correction validation. General-category players do not count toward this cap. Teams without the category option enabled retain the existing auction behavior.
+
+The admin's guided tournament setup includes tournament/competition rules, manual team entry, tournament player Excel import, auction purse/squad/team configuration, and optional icon assignment. Men's and women's settings, player pools, teams, and purchases remain isolated.
+
 Men's and women's teams are different records. They are never shared automatically.
 
 Every tournament-specific entity must be associated with the correct `tournamentId` and competition/gender.
@@ -1033,6 +1043,9 @@ The application is considered complete when:
 10. Admin can conduct live bidding.
 11. Admin can mark SOLD/UNSOLD.
 12. Purse/squad/max-bid update correctly.
+13. Optional category base prices are applied per tournament from each imported player's category.
+14. A/B/C combined roster limits include icon purchases and block disallowed bids server-side; General players remain outside that cap.
+15. Icon purchases are persisted, deducted from purse, included in squad totals/history/results, and omitted from the auction player pool.
 13. Unsold players return in later rounds.
 14. Admin can pause and resume.
 15. Safe undo exists.
