@@ -59,7 +59,7 @@ type PublicAuction = {
   };
 };
 
-const pollIntervalMs = 4500;
+const pollIntervalMs = 1500;
 
 function addPollJitter(delay: number) {
   return Math.round(delay * (0.9 + Math.random() * 0.2));
@@ -169,7 +169,7 @@ export default function PublicLivePage() {
         <section className="public-current-bid"><span className="eyebrow">CURRENT BID</span><strong>{money(auction.currentBid)}</strong><div className="public-winner"><span className="team-logo">{highestTeam?.shortName ?? "--"}</span><div><small>LEADING TEAM</small><b>{highestTeam?.name ?? "No bids yet"}</b></div></div><span className="public-increment">Bid increment · {money(auction.bidIncrement)}</span></section>
       </div>
       <section className="public-squad-section"><div className="public-section-title"><span className="eyebrow">TEAM STATUS · {teams.length} TEAMS · {auction.remainingPlayerCount} PLAYERS REMAINING</span><h2>Squads and purse</h2></div><div className="public-team-grid">{teams.map((team) => <article className={`public-team${team.id === highestTeam?.id ? " public-team-leading" : ""}`} key={team.id}><div className="public-team-heading"><span className="team-logo">{team.shortName}</span><strong>{team.name}</strong>{team.id === highestTeam?.id && <StatusBadge tone="live">LEADING</StatusBadge>}</div><div className="public-team-metrics"><span><small>REMAINING PURSE</small><b>{money(team.remainingBudget)}</b></span><span><small>SQUAD</small><b>{team.playersCount}/{team.squadSize}</b></span><span className="public-max-bid"><small>MAX BID</small><b>{money(team.maximumAffordableBid)}</b></span></div><div className="public-squad-track"><span style={{ width: `${team.squadSize > 0 ? Math.min(100, team.playersCount / team.squadSize * 100) : 0}%` }} /></div><small className="public-players-needed">{team.playersNeeded} minimum slots needed · max bid reserves for those slots</small></article>)}</div></section>
-      <footer className="public-live-footer"><span>READ-ONLY DISPLAY</span><span>Updated from persisted auction state · polling about every 4.5 seconds</span><Link href="/live">All auctions</Link></footer>
+      <footer className="public-live-footer"><span>READ-ONLY DISPLAY</span><span>Updated from persisted auction state · polling about every 1.5 seconds</span><Link href="/live">All auctions</Link></footer>
     </main>
   );
 }

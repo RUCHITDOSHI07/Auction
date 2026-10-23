@@ -32,7 +32,7 @@ export function isPremiumPlayerCategory(value: unknown): boolean {
 export function canAddPremiumPlayer(
   category: unknown,
   currentPremiumPlayers: number,
-  limit = MAX_PREMIUM_PLAYERS_PER_TEAM,
+  limit: number = MAX_PREMIUM_PLAYERS_PER_TEAM,
 ): boolean {
   return !isPremiumPlayerCategory(category) || currentPremiumPlayers < limit;
 }

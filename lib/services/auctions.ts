@@ -1251,7 +1251,7 @@ export async function submitAuctionBid(
   if (requestId && await collections.history.findOne({ requestId })) {
     const persisted = await collections.auctions.findOne({ id: auctionId });
     if (!persisted) throw new Error("Auction not found after duplicate bid request.");
-    return getAuctionRoom(persisted.tournamentId, persisted.gender);
+    return;
   }
   const session = collections.database.client.startSession();
   try {
@@ -1335,9 +1335,6 @@ export async function submitAuctionBid(
     await session.endSession();
   }
 
-  const auction = await collections.auctions.findOne({ id: auctionId });
-  if (!auction) throw new Error("Auction not found after saving bid.");
-  return getAuctionRoom(auction.tournamentId, auction.gender);
 }
 
 export async function transitionAuction(auctionId: string, action: AuctionLifecycleAction, admin: AdminUser) {

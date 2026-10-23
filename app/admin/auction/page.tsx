@@ -7,6 +7,7 @@ import AdminShell from "@/components/admin/AdminShell";
 import { PageHeader, SectionHeading, StatusBadge } from "@/components/ui/Primitives";
 import AuctionResultFeedback from "@/components/auction/AuctionResultFeedback";
 import PlayerPortrait from "@/components/auction/PlayerPortrait";
+import { canAddPremiumPlayer } from "@/lib/auction/category-rules";
 import type { AuctionConfig } from "@/types/auction-config";
 import type { Team } from "@/types/team";
 import type { Player } from "@/types/firestore";
@@ -59,8 +60,12 @@ function AdminAuctionContent() {
   const [error, setError] = useState<string | null>(null);
   const [bidAmount, setBidAmount] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-  const [pendingBidTeamId, setPendingBidTeamId] = useState<string | null>(null);
-  const bidLock = useRef(false);
+  const [pendingBidCount, setPendingBidCount] = useState(0);
+  const pendingBidCountRef = useRef(0);
+  const bidSaveFailedRef = useRef(false);
+  const bidSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const [hasLocalBid, setHasLocalBid] = useState(false);
+  const [bidSaveBlocked, setBidSaveBlocked] = useState(false);
   const resultActionLock = useRef(false);
   const [autoAdvanceAttemptedEventId, setAutoAdvanceAttemptedEventId] = useState<string | null>(null);
   const [correctionPreview, setCorrectionPreview] = useState<CorrectionPreview | null>(null);
@@ -114,6 +119,11 @@ function AdminAuctionContent() {
       })
       .then((loadedRoom) => {
         if (!active || !loadedRoom) return;
+        pendingBidCountRef.current = 0;
+        setPendingBidCount(0);
+        bidSaveFailedRef.current = false;
+        setHasLocalBid(false);
+        setBidSaveBlocked(false);
         startTransition(() => {
           setRoom(loadedRoom);
           setBidAmount("");
@@ -165,6 +175,11 @@ function AdminAuctionContent() {
     setError(null);
     setNotice(null);
     try {
+      await bidSaveQueue.current;
+      if (bidSaveFailedRef.current) {
+        bidSaveFailedRef.current = false;
+        throw new Error("A bid failed to save. The latest saved auction state was restored; confirm the bid before continuing.");
+      }
       const initialize = action === "initialize";
       const response = await fetch(
         initialize ? "/api/auctions" : `/api/auctions/${encodeURIComponent(room.auction.id)}`,
@@ -173,12 +188,17 @@ function AdminAuctionContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(initialize
             ? { action, tournamentId, gender }
-            : { action, ...(expectedResultEventId ? { expectedResultEventId } : {}) }),
+            : {
+                action,
+                ...(expectedResultEventId ? { expectedResultEventId } : {}),
+              }),
         },
       );
       const result = await response.json() as { room?: AuctionRoom; error?: string };
       if (!response.ok || !result.room) throw new Error(result.error ?? "Unable to update auction.");
+      if (action === "pause") setNotice("Auction paused. All bids are saved.");
       setRoom(result.room);
+      setHasLocalBid(false);
       setBidAmount("");
       if (action === "resume") setAutoAdvanceAttemptedEventId(null);
       setNotice(action === "sold" ? "Sale recorded. Review the result before moving on." : action === "unsold" ? "Player marked unsold. Review before moving on." : action === "next-player" ? "Advanced to the next eligible player." : null);
@@ -218,6 +238,7 @@ function AdminAuctionContent() {
           const responseBody = await response.json() as { room?: AuctionRoom; error?: string };
           if (!response.ok || !responseBody.room) throw new Error(responseBody.error ?? "Unable to advance the auction.");
           setRoom(responseBody.room);
+          setHasLocalBid(false);
           setBidAmount("");
         } catch (advanceError) {
           try {
@@ -228,6 +249,7 @@ function AdminAuctionContent() {
             const latest = await refresh.json() as { room?: AuctionRoom };
             if (!refresh.ok || !latest.room) throw advanceError;
             setRoom(latest.room);
+            setHasLocalBid(false);
           } catch {
             setError(advanceError instanceof Error ? advanceError.message : "Unable to advance the auction.");
           }
@@ -240,36 +262,85 @@ function AdminAuctionContent() {
     return () => window.clearTimeout(timer);
   }, [autoAdvanceAttemptedEventId, correctionLoading, correctionPreview, correctionSaving, gender, pendingResultDisplayUntil, pendingResultEventId, room, saving, tournamentId]);
 
-  async function submitBid(teamId: string, customAmount?: number) {
-    if (!room?.auction || saving || bidLock.current) return;
-    bidLock.current = true;
-    setPendingBidTeamId(teamId);
-    setSaving(true);
+  function submitBid(teamId: string, customAmount?: number) {
+    if (!room?.auction || saving) return;
+    if (bidSaveBlocked) {
+      setError("Reload the auction before bidding because the latest saved state could not be loaded.");
+      return;
+    }
+    if (pendingBidCountRef.current === 0) bidSaveFailedRef.current = false;
+    if (bidSaveFailedRef.current) {
+      setError("A bid could not be saved. Wait for the auction to reload before bidding again.");
+      return;
+    }
+    const auction = room.auction;
+    const team = room.teams.find((candidate) => candidate.id === teamId);
+    if (!team) {
+      setError("Selected team is not available in this auction.");
+      return;
+    }
+    const highestTeamId = auction.highestTeamId;
+    const currentBid = auction.currentBid ?? 0;
+    if (highestTeamId === teamId) {
+      setError("The leading team cannot bid twice in a row. Another team must raise the bid first.");
+      return;
+    }
+    const minimumNextBid = highestTeamId
+      ? currentBid + auction.bidIncrement
+      : team.minimumNextBid;
+    const amount = customAmount ?? minimumNextBid;
     setError(null);
     setNotice(null);
-    try {
-      const response = await fetch(`/api/auctions/${encodeURIComponent(room.auction.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: customAmount === undefined ? "bid-next" : "bid",
-          teamId,
-          ...(customAmount === undefined ? {} : { amount: customAmount }),
-          requestId: crypto.randomUUID(),
-        }),
+    setRoom({
+      ...room,
+      auction: {
+        ...auction,
+        currentBid: amount,
+        highestTeamId: teamId,
+      },
+    });
+    setHasLocalBid(true);
+    setBidAmount("");
+    pendingBidCountRef.current += 1;
+    setPendingBidCount(pendingBidCountRef.current);
+    bidSaveQueue.current = bidSaveQueue.current
+      .then(async () => {
+        if (bidSaveFailedRef.current) return;
+        const response = await fetch(`/api/auctions/${encodeURIComponent(auction.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: customAmount === undefined ? "bid-next" : "bid",
+            teamId,
+            ...(customAmount === undefined ? {} : { amount }),
+            requestId: crypto.randomUUID(),
+          }),
+        });
+        const result = await response.json() as { success?: boolean; error?: string };
+        if (!response.ok || !result.success) throw new Error(result.error ?? "Unable to save bid.");
+        setNotice(`Bid saved for ${team.name}.`);
+      })
+      .catch(async (bidError: unknown) => {
+        bidSaveFailedRef.current = true;
+        const message = bidError instanceof Error ? bidError.message : "Unable to save bid.";
+        try {
+          const refresh = await fetch(`/api/auctions?tournamentId=${encodeURIComponent(tournamentId)}&gender=${gender}`, { cache: "no-store" });
+          const latest = await refresh.json() as { room?: AuctionRoom; error?: string };
+          if (!refresh.ok || !latest.room) throw new Error(latest.error ?? "Unable to reload auction.");
+          setRoom(latest.room);
+          setHasLocalBid(false);
+          setBidSaveBlocked(false);
+          setError(`${message} The latest saved auction state was restored.`);
+        } catch (refreshError) {
+          setBidSaveBlocked(true);
+          const refreshMessage = refreshError instanceof Error ? refreshError.message : "Unable to reload auction.";
+          setError(`${message} ${refreshMessage}`);
+        }
+      })
+      .finally(() => {
+        pendingBidCountRef.current -= 1;
+        setPendingBidCount(pendingBidCountRef.current);
       });
-      const result = await response.json() as { room?: AuctionRoom; error?: string };
-      if (!response.ok || !result.room) throw new Error(result.error ?? "Unable to save bid.");
-      setRoom(result.room);
-      setBidAmount("");
-      setNotice(`Bid accepted for ${result.room.teams.find((team) => team.id === teamId)?.name ?? "team"}.`);
-    } catch (bidError) {
-      setError(bidError instanceof Error ? bidError.message : "Unable to save bid.");
-    } finally {
-      bidLock.current = false;
-      setSaving(false);
-      setPendingBidTeamId(null);
-    }
   }
 
   async function undoSale() {
@@ -348,10 +419,9 @@ function AdminAuctionContent() {
     : -1;
   const statusTone = auction.status === "live" ? "live" : auction.status === "completed" ? "success" : "warning";
   const highestTeam = auctionTeams.find((team) => team.id === auction.highestTeamId);
-  const minimumBid = auctionTeams.find((team) => team.id === auction.highestTeamId)?.minimumNextBid
-    ?? auctionTeams.find((team) => team.canPlaceNextBid)?.minimumNextBid
-    ?? currentPlayer?.auctionBasePrice
-    ?? 0;
+  const minimumBid = auction.highestTeamId
+    ? (auction.currentBid ?? 0) + auction.bidIncrement
+    : auctionTeams.find((team) => team.canPlaceNextBid)?.minimumNextBid ?? currentPlayer?.auctionBasePrice ?? 0;
   const bidReference = auction.highestTeamId
     ? auction.currentBid ?? minimumBid
     : currentPlayer?.auctionBasePrice ?? minimumBid;
@@ -388,6 +458,7 @@ function AdminAuctionContent() {
 
         {error && <div className="tournament-error" role="alert">{error}</div>}
         {notice && <div className="auction-notice" role="status">{notice}</div>}
+        {(pendingBidCount > 0 || hasLocalBid) && <p className="muted-label" role="status">{pendingBidCount > 0 ? `Saving ${pendingBidCount} bid${pendingBidCount === 1 ? "" : "s"} in the background.` : "Bid saved."} The admin display updates immediately; public viewers update after the save.</p>}
         <AuctionResultFeedback
           variant="admin"
           result={auction.lastResult}
@@ -445,13 +516,24 @@ function AdminAuctionContent() {
                 </div>
                 <div className="team-bid-grid">
                   {auctionTeams.map((team) => {
-                    const bid = bidAmount ? Number(bidAmount) : team.minimumNextBid;
-                    const canBid = team.canPlaceNextBid && Number.isFinite(bid) && bid >= team.minimumNextBid && bid <= team.remainingBudget && bid <= team.maximumAffordableBid;
+                    const minimumTeamBid = auction.highestTeamId
+                      ? (auction.currentBid ?? 0) + auction.bidIncrement
+                      : team.minimumNextBid;
+                    const bid = bidAmount ? Number(bidAmount) : minimumTeamBid;
+                    const canBid = (hasLocalBid || team.canPlaceNextBid)
+                      && team.id !== auction.highestTeamId
+                      && team.playersCount < auction.maximumSquadSize
+                      && (team.premiumPlayersLimit === undefined
+                        || canAddPremiumPlayer(currentPlayer.category, team.premiumPlayersCount, team.premiumPlayersLimit))
+                      && Number.isFinite(bid)
+                      && bid >= minimumTeamBid
+                      && bid <= team.remainingBudget
+                      && bid <= team.maximumAffordableBid;
                     return <button className={`team-bid-card${team.id === auction.highestTeamId ? " leading" : ""}`} key={team.id} type="button" disabled={saving || !canBid} onClick={() => void submitBid(team.id, bidAmount ? bid : undefined)} aria-label={`${team.name}, bid ${formatMoney(bid)}`}>
                       <span className="team-bid-top"><span className="team-logo">{team.shortName}</span>{team.id === auction.highestTeamId && <StatusBadge tone="live">LEADING</StatusBadge>}</span>
                       <strong>{team.name}</strong>
                       <span className="team-bid-metrics">{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players{team.premiumPlayersLimit !== undefined ? ` · A/B/C ${team.premiumPlayersCount}/${team.premiumPlayersLimit}` : ""}</span>
-                      <span className="team-bid-next">{saving && pendingBidTeamId === team.id ? "Saving bid..." : `Bid ${formatMoney(bid)}`}</span>
+                      <span className="team-bid-next">Bid {formatMoney(bid)}</span>
                       <span className="team-bid-limit"><b>MAX BID</b> {formatMoney(team.maximumAffordableBid)}<small> after minimum-squad reserve</small></span>
                     </button>;
                   })}
