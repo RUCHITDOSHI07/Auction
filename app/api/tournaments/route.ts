@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { AdminApiError, requireAdmin } from "@/lib/auth/admin-api";
 import { createTournament, getTournaments } from "@/lib/services/tournaments";
-import { getAdminDashboardSummary } from "@/lib/services/admin-dashboard";
+import { getTournamentCompetitionCounts } from "@/lib/services/admin-dashboard";
 import type { TournamentInput } from "@/types/tournament";
 
 export async function GET() {
   try {
     await requireAdmin();
     const tournaments = await getTournaments();
-    const summary = await getAdminDashboardSummary(tournaments);
-    return NextResponse.json({ tournaments, competitionCounts: summary.competitions });
+    const competitionCounts = await getTournamentCompetitionCounts(tournaments);
+    return NextResponse.json({ tournaments, competitionCounts });
   } catch (error) {
     if (error instanceof AdminApiError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -35,6 +35,7 @@ export async function POST(request: Request) {
         male: Boolean(body.competitions?.male),
         female: Boolean(body.competitions?.female),
       },
+      iconPlayersEnabled: body.iconPlayersEnabled,
       categoryRules: body.categoryRules,
     });
 

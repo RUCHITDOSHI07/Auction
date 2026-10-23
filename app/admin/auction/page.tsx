@@ -544,19 +544,21 @@ function AdminAuctionContent() {
             {auction.awaitingAdvance && currentPlayer?.auctionStatus === "sold" && auction.lastSaleEventId && <div className="sale-recovery-actions"><button className="button button-outline" type="button" disabled={saving} onClick={() => void undoSale()}>Undo sale</button><button className="button button-outline" type="button" disabled={saving || correctionLoading} onClick={() => void openSaleCorrection(auction.lastSaleEventId!, auction.id)}>{correctionLoading ? "Loading preview..." : "Correct sale"}</button></div>}
           </section>
 
-          <aside className="panel team-board">
-            <SectionHeading title="Eligible teams" />
-            {auctionTeams.length === 0 ? <p>No eligible teams are configured.</p> : auctionTeams.map((team) => (
-              <div className="team-board-row" key={team.id}>
-                <span className="team-logo">{team.shortName}</span>
-                <div>
-                  <b>{team.name}</b>
-                  <small>{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players{team.premiumPlayersLimit !== undefined ? ` · A/B/C ${team.premiumPlayersCount}/${team.premiumPlayersLimit}` : ""}</small>
-                  <small className="team-board-max-bid">MAX BID {formatMoney(team.maximumAffordableBid)}</small>
+          <details className="panel team-board team-board-details" open={auction.status !== "live"}>
+            <summary><SectionHeading title={`Eligible teams · ${auctionTeams.length}`} /></summary>
+            <div className="team-board-list">
+              {auctionTeams.length === 0 ? <p>No eligible teams are configured.</p> : auctionTeams.map((team) => (
+                <div className="team-board-row" key={team.id}>
+                  <span className="team-logo">{team.shortName}</span>
+                  <div>
+                    <b>{team.name}</b>
+                    <small>{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players{team.premiumPlayersLimit !== undefined ? ` · A/B/C ${team.premiumPlayersCount}/${team.premiumPlayersLimit}` : ""}</small>
+                    <small className="team-board-max-bid">MAX BID {formatMoney(team.maximumAffordableBid)}</small>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </aside>
+              ))}
+            </div>
+          </details>
         </div>
 
         <div className="room-lower">

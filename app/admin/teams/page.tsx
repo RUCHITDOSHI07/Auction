@@ -7,9 +7,12 @@ import AdminShell from "@/components/admin/AdminShell";
 import { PageHeader, StatusBadge } from "@/components/ui/Primitives";
 import type { Team } from "@/types/team";
 import type { Tournament } from "@/types/tournament";
+import type { MongoPlayer } from "@/lib/services/players";
+import { getIconPlayerPrice, normalizeTournamentPlayerCategory } from "@/lib/auction/category-rules";
 
-type FormState = { name:string; shortName:string; ownerName:string; logoUrl:string; totalBudget:string; squadSize:string };
-const emptyForm:FormState={name:"",shortName:"",ownerName:"",logoUrl:"",totalBudget:"100000",squadSize:"11"};
+type TeamSetupPlayer = MongoPlayer & { tournament?: { basePrice: number; status: string; teamId?: string; iconPurchase?: boolean } };
+type FormState = { name:string; shortName:string; ownerName:string; logoUrl:string; totalBudget:string; squadSize:string; iconPlayerId:string };
+const emptyForm:FormState={name:"",shortName:"",ownerName:"",logoUrl:"",totalBudget:"100000",squadSize:"11",iconPlayerId:""};
 
 function formatMoney(value:number){return `₹${value.toLocaleString("en-IN")}`;}
 
@@ -19,6 +22,7 @@ function AdminTeamsContent(){
   const gender=searchParams.get("gender")==="female"?"female":"male";
   const [tournament,setTournament]=useState<Tournament|null>(null);
   const [teams,setTeams]=useState<Team[]>([]);
+  const [players,setPlayers]=useState<TeamSetupPlayer[]>([]);
   const [form,setForm]=useState<FormState>(emptyForm);
   const [showForm,setShowForm]=useState(false);
   const [editingTeam,setEditingTeam]=useState<Team|null>(null);
@@ -27,31 +31,61 @@ function AdminTeamsContent(){
   const [error,setError]=useState<string|null>(null);
 
   const loadData=useCallback(async()=>{
-    if(!tournamentId){setLoading(false);return;}
-    setLoading(true);setError(null);
-    try{
-      const [tr,tm]=await Promise.all([
-        fetch(`/api/tournaments/${tournamentId}`),
-        fetch(`/api/teams?tournamentId=${encodeURIComponent(tournamentId)}&gender=${gender}`)
-      ]);
-      const tournamentResult=await tr.json() as {tournament?:Tournament;error?:string};
-      const teamsResult=await tm.json() as {teams?:Team[];error?:string};
-      if(!tr.ok)throw new Error(tournamentResult.error??"Unable to load tournament.");
-      if(!tm.ok)throw new Error(teamsResult.error??"Unable to load teams.");
-      setTournament(tournamentResult.tournament??null);setTeams(teamsResult.teams??[]);
-    }catch(e){setError(e instanceof Error?e.message:"Unable to load teams.");}
-    finally{setLoading(false);}
+    if(!tournamentId)return null;
+    const [tr,tm]=await Promise.all([
+      fetch(`/api/tournaments/${tournamentId}`),
+      fetch(`/api/teams?tournamentId=${encodeURIComponent(tournamentId)}&gender=${gender}`)
+    ]);
+    const tournamentResult=await tr.json() as {tournament?:Tournament;error?:string};
+    const teamsResult=await tm.json() as {teams?:Team[];error?:string};
+    if(!tr.ok)throw new Error(tournamentResult.error??"Unable to load tournament.");
+    if(!tm.ok)throw new Error(teamsResult.error??"Unable to load teams.");
+    const loadedTournament=tournamentResult.tournament??null;
+    const iconPlayersEnabled=loadedTournament?.competitions[gender].iconPlayersEnabled
+      ??loadedTournament?.competitions[gender].categoryRules?.enabled
+      ??false;
+    let loadedPlayers:TeamSetupPlayer[]=[];
+    if(iconPlayersEnabled){
+      const response=await fetch(`/api/tournament-players?tournamentId=${encodeURIComponent(tournamentId)}&gender=${gender}`);
+      const result=await response.json() as {players?:TeamSetupPlayer[];error?:string};
+      if(!response.ok)throw new Error(result.error??"Unable to load tournament players.");
+      loadedPlayers=result.players??[];
+    }
+    return {
+      tournament:loadedTournament,
+      teams:teamsResult.teams??[],
+      players:loadedPlayers,
+    };
   },[tournamentId,gender]);
 
-  useEffect(()=>{void loadData();},[loadData]);
+  useEffect(()=>{
+    let active=true;
+    void loadData().then(data=>{
+      if(active&&data){setTournament(data.tournament);setTeams(data.teams);setPlayers(data.players);}
+    }).catch(e=>{
+      if(active)setError(e instanceof Error?e.message:"Unable to load teams.");
+    }).finally(()=>{
+      if(active)setLoading(false);
+    });
+    return ()=>{active=false;};
+  },[loadData]);
 
   const title=gender==="female"?"Women's Teams":"Men's Teams";
   const competitionEnabled=tournament?.competitions[gender].enabled??false;
+  const iconPlayersEnabled=tournament?.competitions[gender].iconPlayersEnabled
+    ?? tournament?.competitions[gender].categoryRules?.enabled
+    ?? false;
+  const selectedIconIsLocked=Boolean(form.iconPlayerId&&players.some(player=>player.id===form.iconPlayerId&&player.tournament?.iconPurchase));
+  const availableIconPlayers=players.filter(player=>
+    (player.tournament?.status==="available"||player.id===form.iconPlayerId)
+    &&normalizeTournamentPlayerCategory(player.category)!==null
+    &&!teams.some(team=>team.id!==editingTeam?.id&&team.iconPlayerId===player.id)
+  );
   const budgetTotal=useMemo(()=>teams.reduce((sum,team)=>sum+team.totalBudget,0),[teams]);
 
   function startEdit(team:Team){
     setEditingTeam(team);
-    setForm({name:team.name,shortName:team.shortName,ownerName:team.ownerName??"",logoUrl:team.logoUrl??"",totalBudget:String(team.totalBudget),squadSize:String(team.squadSize)});
+    setForm({name:team.name,shortName:team.shortName,ownerName:team.ownerName??"",logoUrl:team.logoUrl??"",totalBudget:String(team.totalBudget),squadSize:String(team.squadSize),iconPlayerId:team.iconPlayerId??""});
     setShowForm(true);
     setError(null);
   }
@@ -64,19 +98,20 @@ function AdminTeamsContent(){
     event.preventDefault();setSaving(true);setError(null);
     try{
       const endpoint=editingTeam?`/api/teams/${encodeURIComponent(editingTeam.id)}`:"/api/teams";
-      const response=await fetch(endpoint,{method:editingTeam?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(editingTeam?{name:form.name,shortName:form.shortName,ownerName:form.ownerName,logoUrl:form.logoUrl,totalBudget:Number(form.totalBudget),squadSize:Number(form.squadSize)}:{tournamentId,gender,...form,totalBudget:Number(form.totalBudget),squadSize:Number(form.squadSize)})});
-      const result=await response.json() as {team?:Team;error?:string};
+      const response=await fetch(endpoint,{method:editingTeam?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(editingTeam?{name:form.name,shortName:form.shortName,ownerName:form.ownerName,logoUrl:form.logoUrl,totalBudget:Number(form.totalBudget),squadSize:Number(form.squadSize),iconPlayerId:form.iconPlayerId}:{tournamentId,gender,...form,totalBudget:Number(form.totalBudget),squadSize:Number(form.squadSize)})});
+      const result=await response.json() as {team?:Team;error?:string;warning?:string};
       if(!response.ok)throw new Error(result.error??"Unable to create team.");
       setTeams(current=>{
         const next=editingTeam?current.map(team=>team.id===result.team!.id?result.team!:team):[...current,result.team!];
         return next.sort((a,b)=>a.name.localeCompare(b.name));
       });
       closeForm();
+      if(result.warning)setError(result.warning);
     }catch(e){setError(e instanceof Error?e.message:"Unable to create team.");}
     finally{setSaving(false);}
   }
 
-  if(!tournamentId)return <AdminShell><div className="content-wrap"><PageHeader eyebrow="TOURNAMENT TEAMS" title="Teams" description="Choose a tournament and competition before managing teams." action={<Link className="button button-outline" href="/admin/tournaments">Choose tournament</Link>}/><section className="panel"><p>Select a tournament first. Men's and women's teams are stored separately.</p></section></div></AdminShell>;
+  if(!tournamentId)return <AdminShell><div className="content-wrap"><PageHeader eyebrow="TOURNAMENT TEAMS" title="Teams" description="Choose a tournament and competition before managing teams." action={<Link className="button button-outline" href="/admin/tournaments">Choose tournament</Link>}/><section className="panel"><p>Select a tournament first. Men&apos;s and women&apos;s teams are stored separately.</p></section></div></AdminShell>;
 
   return <AdminShell><div className="content-wrap tournament-content">
     <Link className="back-link" href={`/admin/tournaments/${tournamentId}`}>← {tournament?.name??"Tournament"}</Link>
@@ -91,6 +126,7 @@ function AdminTeamsContent(){
       <label>Logo URL<input value={form.logoUrl} onChange={e=>setForm({...form,logoUrl:e.target.value})} placeholder="Optional"/></label>
       <label>Starting budget<input required type="number" min="1" step="1" value={form.totalBudget} onChange={e=>setForm({...form,totalBudget:e.target.value})}/></label>
       <label>Squad size<input required type="number" min="1" step="1" value={form.squadSize} onChange={e=>setForm({...form,squadSize:e.target.value})}/></label>
+      {iconPlayersEnabled&&<label>Pre-booked icon player<select value={form.iconPlayerId} disabled={selectedIconIsLocked} onChange={e=>setForm({...form,iconPlayerId:e.target.value})}><option value="">No icon player</option>{availableIconPlayers.map(player=>{const category=normalizeTournamentPlayerCategory(player.category);const price=category?getIconPlayerPrice(category,player.tournament?.basePrice??0,tournament?.competitions[gender].categoryRules):0;return <option key={player.id} value={player.id}>{player.name} · {player.category} · {formatMoney(price)}</option>;})}</select><small>One per team. The purchase is charged when auction rules are saved.</small></label>}
     </div><div className="tournament-actions"><button className="button button-dark" type="submit" disabled={saving}>{saving?(editingTeam?"Saving...":"Creating..."):(editingTeam?"Save changes":"Create team")}</button><button className="button button-outline" type="button" onClick={closeForm}>Cancel</button></div></form>}
     {!loading&&teams.length===0&&<section className="panel team-empty"><h2>No teams yet</h2><p>Add the teams that will participate in this competition.</p></section>}
     {loading&&<section className="panel"><p>Loading teams...</p></section>}

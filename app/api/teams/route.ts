@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AdminApiError, requireAdmin } from "@/lib/auth/admin-api";
-import { createTeam, getTeams } from "@/lib/services/teams";
+import { createTeam, getTeamById, getTeams } from "@/lib/services/teams";
+import { assignConfiguredTeamIconPlayers } from "@/lib/services/auctions";
 import type { CompetitionGender } from "@/types/tournament";
 import type { TeamInput } from "@/types/team";
 
@@ -33,9 +34,19 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await requireAdmin();
+    const admin = await requireAdmin();
     const input = await request.json() as TeamInput;
-    return NextResponse.json({ team: await createTeam(input) }, { status: 201 });
+    const team = await createTeam(input);
+    let warning: string | undefined;
+    if (input.iconPlayerId) {
+      try {
+        await assignConfiguredTeamIconPlayers(input.tournamentId, input.gender, admin);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "Unexpected error.";
+        warning = `Team was created, but the icon-player purchase was not completed: ${reason} You can retry by editing the team or saving auction settings again.`;
+      }
+    }
+    return NextResponse.json({ team: await getTeamById(team.id) ?? team, ...(warning ? { warning } : {}) }, { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }

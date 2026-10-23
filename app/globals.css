@@ -1131,3 +1131,109 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
   .tournament-setup-wizard .icon-assignment-row { grid-template-columns:1fr; }
   .tournament-setup-wizard .icon-assignment-row select { width:100%; }
 }
+.public-team-summary { display:block; cursor:pointer; list-style:none; }
+.public-team-summary::-webkit-details-marker { display:none; }
+.public-team-summary:focus-visible { outline:2px solid var(--lime); outline-offset:3px; }
+.public-team-expand-hint { display:block; margin-top:.7rem; color:var(--lime); font-size:.64rem; }
+.public-team-roster { display:block; margin-top:1rem; border-top:1px solid var(--line); padding-top:.8rem; }
+.public-team-roster h3 { margin:.8rem 0 .4rem; color:var(--lime); font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; }
+.public-team-roster ul { display:grid; gap:.4rem; margin:0; padding:0; list-style:none; }
+.public-team-roster li { display:flex; align-items:center; justify-content:space-between; gap:.5rem; border-bottom:1px solid var(--line); padding:.4rem 0; font-size:.7rem; }
+.public-team-roster li span { min-width:0; }
+.public-team-roster li strong,.public-team-roster li small { display:block; }
+.public-team-roster li small { margin-top:.15rem; color:var(--muted); font-size:.58rem; }
+.public-team-roster li > b { flex:0 0 auto; color:var(--lime); font-size:.68rem; }
+.public-team-roster > p { color:var(--muted); font-size:.68rem; }
+.public-team-roster .public-empty-spots li { color:var(--muted); font-size:.65rem; }
+
+.auction-room .auction-layout {
+  grid-template-columns:minmax(17rem,.8fr) minmax(0,1.45fr);
+  align-items:start;
+}
+.auction-room .player-stage { min-height:16rem; }
+.auction-room .big-bid { font-size:2.55rem; }
+.auction-room .winning-team { min-height:3.15rem; }
+.auction-room .auction-bid-controls { padding:.75rem 0 0; }
+.auction-room .bid-presets { margin-bottom:.55rem; }
+.auction-room .team-bid-heading { margin-bottom:.5rem; }
+.auction-room .auction-layout > .team-board-details {
+  grid-column:1/-1;
+  min-width:0;
+  padding:.65rem .9rem;
+}
+.team-board-details > summary {
+  cursor:pointer;
+  list-style:none;
+}
+.team-board-details > summary::-webkit-details-marker { display:none; }
+.team-board-details > summary .section-heading { margin:0; }
+.team-board-details > summary .section-heading::after {
+  margin-left:auto;
+  color:var(--lime);
+  content:"+";
+  font-size:1rem;
+}
+.team-board-details[open] > summary .section-heading::after { content:"−"; }
+.team-board-details[open] > summary { margin-bottom:.5rem; }
+.team-board-list {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));
+  gap:0 1rem;
+}
+.auction-room .team-bid-grid {
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,9.5rem),1fr));
+  gap:.4rem;
+}
+.auction-room .team-bid-card {
+  min-height:4rem;
+  grid-template-rows:auto auto auto;
+  gap:.2rem .45rem;
+  padding:.5rem .55rem;
+}
+.auction-room .team-bid-top { align-items:center; gap:.35rem; }
+.auction-room .team-bid-top .team-logo {
+  width:1.55rem;
+  height:1.55rem;
+  flex-basis:1.55rem;
+}
+.auction-room .team-bid-card > strong {
+  overflow:hidden;
+  font-size:.68rem;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.auction-room .team-bid-metrics {
+  overflow:hidden;
+  font-size:.52rem;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.auction-room .team-bid-next {
+  padding:.38rem .45rem;
+  font-size:.59rem;
+}
+.auction-room .team-bid-limit { font-size:.52rem; }
+.auction-room .team-bid-limit small { display:none; }
+
+@media (max-width:900px) {
+  .auction-room .auction-layout {
+    grid-template-columns:minmax(14rem,.9fr) minmax(0,1.1fr);
+  }
+  .auction-room .team-board-details { grid-column:1/-1; }
+  .auction-room .team-bid-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media (max-width:600px) {
+  .auction-room .auction-layout { grid-template-columns:1fr; }
+  .auction-room .team-bid-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .auction-room .player-stage { min-height:13rem; }
+}
+.auction-room .room-lower {
+  position:sticky;
+  bottom:0;
+  z-index:10;
+  margin:1rem -.65rem 0;
+  border-top:1px solid var(--line);
+  background:rgba(9,17,16,.96);
+  padding:.65rem;
+  backdrop-filter:blur(12px);
+}

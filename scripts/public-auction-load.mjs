@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 
 function parseArgs(args) {
-  const options = { viewers: 50, durationSeconds: 120, pollMs: 4500, run: false };
+  const options = { viewers: 50, durationSeconds: 120, pollMs: 1500, run: false };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--run") options.run = true;
@@ -33,7 +33,7 @@ Required to run:
 Optional:
   --viewers 50                 Minimum is 50
   --duration-seconds 120       Range: 15-3600
-  --poll-ms 4500               Must be at least 1000
+  --poll-ms 1500               Must be at least 1000
 
 During the run, enter: change <label>
 immediately after an authorized operator confirms a staging state change persisted.
@@ -236,6 +236,8 @@ async function main() {
     console.log(JSON.stringify({
       mode: "dry-run",
       networkRequests: 0,
+      viewers: options.viewers,
+      pollIntervalMs: Number(options.pollMs),
       note: "Add --run plus explicit staging host confirmation to start read-only requests.",
     }, null, 2));
     return printUsage();

@@ -24,6 +24,10 @@ type PublicTransaction = {
   type?: "purchase" | "reversal" | "correction";
   teamId: string;
   amount: number;
+  playerId: string;
+  source?: "auction" | "icon";
+  category?: string;
+  createdAt?: Date;
 };
 type PublicTournamentPlayer = {
   tournamentId: string;
@@ -183,7 +187,18 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
     getPublicMetadata(database, auction),
     database.collection<PublicTransaction>("auctionTransactions")
       .find({ auctionId: auction.id }, {
-        projection: { _id: 0, transactionId: 1, reversesTransactionId: 1, type: 1, teamId: 1, amount: 1 },
+        projection: {
+          _id: 0,
+          transactionId: 1,
+          reversesTransactionId: 1,
+          type: 1,
+          teamId: 1,
+          amount: 1,
+          playerId: 1,
+          source: 1,
+          category: 1,
+          createdAt: 1,
+        },
       })
       .toArray(),
     poolIds.length
@@ -275,9 +290,26 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
   ]);
 
   const metadata = metadataLookup.metadata;
+  const purchases = getEffectiveAuctionPurchases(transactions);
+  const purchasedPlayerIds = [...new Set(purchases.map((purchase) => purchase.playerId))];
+  const purchasedPlayers = purchasedPlayerIds.length
+    ? await database.collection<PublicPlayer>("players").find({ id: { $in: purchasedPlayerIds } }, {
+        projection: {
+          _id: 0,
+          id: 1,
+          name: 1,
+          fullName: 1,
+          role: 1,
+          category: 1,
+          photoUrl: 1,
+        },
+      }).toArray()
+    : [];
+  const purchasedPlayerById = new Map(purchasedPlayers.map((player) => [player.id, player]));
   if (process.env.PUBLIC_AUCTION_DIAGNOSTICS === "true") {
     const additionalMongoReads = (metadataLookup.cacheHit ? 0 : 2) + 1 + Number(poolIds.length > 0) +
-      Number(Boolean(auction.currentPlayerId)) * 2 + Number(Boolean(roundPlayerIds.length && auction.currentRound));
+      Number(Boolean(auction.currentPlayerId)) * 2 + Number(Boolean(roundPlayerIds.length && auction.currentRound)) +
+      Number(purchasedPlayerIds.length > 0);
     console.info(JSON.stringify({
       event: "public_auction_snapshot",
       auctionId: auction.id,
@@ -290,7 +322,6 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
     throw new Error("The persisted current player is missing or does not match this competition.");
   }
 
-  const purchases = getEffectiveAuctionPurchases(transactions);
   const reserveData = remainingPlayers[0];
   const remainingPlayerBasePrices = (reserveData?.cheapest ?? []).map((candidate) => candidate.basePrice);
   const teams = metadata.teams.map((team) => {
@@ -316,6 +347,23 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
       squadSize: auction.maximumSquadSize,
       playersNeeded: budget.playersNeeded,
       maximumAffordableBid: budget.maximumAffordableBid,
+      players: [...teamPurchases]
+        .sort((left, right) => (left.createdAt?.getTime() ?? 0) - (right.createdAt?.getTime() ?? 0))
+        .map((purchase) => {
+        const player = purchasedPlayerById.get(purchase.playerId);
+        const playerName = player?.name ?? player?.fullName ?? purchase.playerId;
+        const category = purchase.category ?? player?.category;
+        return {
+          id: purchase.playerId,
+          name: playerName,
+          ...(player?.role ? { role: player.role } : {}),
+          ...(category ? { category } : {}),
+          ...(player?.photoUrl ? { photoUrl: player.photoUrl } : {}),
+          amount: purchase.amount,
+          iconPurchase: purchase.source === "icon",
+        };
+        }),
+      emptySpots: Math.max(0, auction.maximumSquadSize - teamPurchases.length),
     };
   });
   const leader = teams.find((team) => team.id === auction.highestTeamId);
@@ -370,6 +418,8 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
       playersNeeded: team.playersNeeded,
       maximumAffordableBid: team.maximumAffordableBid,
       status: team.status,
+      players: team.players,
+      emptySpots: team.emptySpots,
       })),
       result: publicResult(auction.lastResult),
     },

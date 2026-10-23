@@ -95,6 +95,7 @@ Public viewers can:
 - View current bid
 - View highest team
 - View team status
+- Open a team to view its selected players and remaining squad spots
 - View SOLD/UNSOLD states
 - View relevant auction information
 
@@ -179,11 +180,11 @@ Tournament
 
 Tournament creation may independently enable category pricing for the men's and women's competitions. When enabled, the tournament stores category base prices (defaults: A = 50,000, B = 40,000, C = 30,000, General = 1,000) and applies them to each imported tournament-player record using the Excel `Category` value. These prices are tournament-specific; they must not overwrite permanent player master data.
 
-The enabled competition may optionally assign one icon player to each team before auction initialization. A/B/C icon players cost their configured category base price. A General icon player's price is separately configurable by the tournament creator (default 15,000). Each icon assignment is a canonical purchase: it is recorded in the tournament-player state, auction transaction ledger, and auction history; deducts from the team's purse; counts toward its squad size; and is excluded from the remaining auction pool.
+Tournament creation may independently enable pre-booked icon players for the men's and women's competitions. After importing players, the admin may select at most one icon player while creating each team. A/B/C icon players use the configured category base price when category pricing is enabled, or the imported tournament-player base price otherwise. The General icon-player price is configurable per competition (default 15,000). Icon selections are finalized when auction settings are saved: each becomes a canonical purchase recorded in tournament-player state, the auction transaction ledger, and auction history; it deducts from the team's purse, counts toward squad size, and is excluded from the remaining auction pool.
 
 When category rules are enabled, a team may acquire at most two players combined from categories A, B, and C. This limit includes pre-auction icon purchases and must be enforced by server-side bid, sale, and sale-correction validation. General-category players do not count toward this cap. Teams without the category option enabled retain the existing auction behavior.
 
-The admin's guided tournament setup includes tournament/competition rules, manual team entry, tournament player Excel import, auction purse/squad/team configuration, and optional icon assignment. Men's and women's settings, player pools, teams, and purchases remain isolated.
+The admin's guided tournament setup includes tournament/competition rules, player-pool import, manual team creation with optional icon selection, and auction purse/squad/team configuration. Men's and women's settings, player pools, teams, and purchases remain isolated.
 
 Men's and women's teams are different records. They are never shared automatically.
 
@@ -407,6 +408,8 @@ Men's and women's auction configurations are independent.
 # 14. Auction Order
 
 The admin must be able to configure player order before auction day.
+
+At auction initialization, A players are presented first, followed by B, then C. Players retain their existing order within each of those categories. General players are shuffled and presented after those categories. The generated order is persisted so refreshes and later sessions retain the same sequence.
 
 Required functionality:
 

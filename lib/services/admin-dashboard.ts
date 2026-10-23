@@ -5,6 +5,43 @@ import type { CompetitionGender, Tournament } from "@/types/tournament";
 type CountGroup = { _id: { tournamentId: string; gender: CompetitionGender; status?: string }; count: number };
 type AuctionSummary = { id: string; tournamentId: string; gender: CompetitionGender; status: string; currentRound?: number; playerPoolIds?: string[]; currentPlayerId?: string; currentBid?: number; highestTeamId?: string };
 
+export async function getTournamentCompetitionCounts(tournaments: Tournament[]) {
+  if (tournaments.length === 0) return [];
+
+  const database = await getMongoDb();
+  const tournamentIds = tournaments.map((tournament) => tournament.id);
+  const [teamCounts, playerCounts] = await Promise.all([
+    database.collection("teams").aggregate<CountGroup>([
+      { $match: { tournamentId: { $in: tournamentIds } } },
+      { $group: { _id: { tournamentId: "$tournamentId", gender: "$gender" }, count: { $sum: 1 } } },
+    ]).toArray(),
+    database.collection("tournamentPlayers").aggregate<CountGroup>([
+      { $match: { tournamentId: { $in: tournamentIds } } },
+      { $group: { _id: { tournamentId: "$tournamentId", gender: "$gender" }, count: { $sum: 1 } } },
+    ]).toArray(),
+  ]);
+  const teamCountByCompetition = new Map(teamCounts.map((group) => [
+    `${group._id.tournamentId}:${group._id.gender}`,
+    group.count,
+  ]));
+  const playerCountByCompetition = new Map(playerCounts.map((group) => [
+    `${group._id.tournamentId}:${group._id.gender}`,
+    group.count,
+  ]));
+
+  return tournaments.flatMap((tournament) => (["male", "female"] as const)
+    .filter((gender) => tournament.competitions[gender].enabled)
+    .map((gender) => {
+      const key = `${tournament.id}:${gender}`;
+      return {
+        tournamentId: tournament.id,
+        gender,
+        teamCount: teamCountByCompetition.get(key) ?? 0,
+        playerCount: playerCountByCompetition.get(key) ?? 0,
+      };
+    }));
+}
+
 export async function getAdminDashboardSummary(tournamentList?: Tournament[]) {
   const database = await getMongoDb();
   const [tournaments, teamCounts, playerCounts, auctions] = await Promise.all([

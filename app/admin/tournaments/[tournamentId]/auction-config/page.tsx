@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import AdminShell from "@/components/admin/AdminShell";
+import styles from "./auction-config.module.css";
 import type { Team } from "@/types/team";
 import type { Tournament } from "@/types/tournament";
 import type { AuctionConfig } from "@/types/auction-config";
@@ -55,7 +56,7 @@ export default function AuctionConfigPage() {
 
   if(loading)return <AdminShell><div className="content-wrap"><section className="panel"><p>Loading auction configuration...</p></section></div></AdminShell>;
 
-  return <AdminShell><div className="content-wrap tournament-content">
+  return <AdminShell><div className={`content-wrap tournament-content auction-config-page ${styles.page}`}>
     <Link className="back-link" href={`/admin/tournaments/${params.tournamentId}`}>← {tournament?.name??"Tournament"}</Link>
     <div className="auction-config-head"><div><span className="eyebrow">{tournament?.season} · {gender==="male"?"MEN'S":"WOMEN'S"}</span><h1>Configure auction</h1><p>Set the auction rules and choose the teams that will participate.</p></div><span className={locked?"config-locked":config?"config-ready":"config-draft"}>{locked?"LOCKED AFTER INITIALIZATION":config?.status?.toUpperCase()??"DRAFT"}</span></div>
     {locked&&<div className="auction-lock-notice" role="status">Auction pool and rules are locked because this competition has been initialized. Player pool changes, team membership, purse, and squad limits are protected from accidental changes.</div>}

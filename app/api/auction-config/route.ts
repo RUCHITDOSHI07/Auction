@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAdmin, AdminApiError } from "@/lib/auth/admin-api";
 import { getAuctionConfig, saveAuctionConfig } from "@/lib/services/auction-config";
+import { assignConfiguredTeamIconPlayers } from "@/lib/services/auctions";
+import type { AuctionConfigInput } from "@/types/auction-config";
 import type { CompetitionGender } from "@/types/tournament";
 
 function fail(error: unknown) {
@@ -19,7 +21,10 @@ export async function GET(request: Request) {
 }
 export async function POST(request: Request) {
   try {
-    await requireAdmin();
-    return NextResponse.json({ config: await saveAuctionConfig(await request.json()) });
+    const admin = await requireAdmin();
+    const input = await request.json() as AuctionConfigInput;
+    const config = await saveAuctionConfig(input);
+    await assignConfiguredTeamIconPlayers(input.tournamentId, input.gender, admin);
+    return NextResponse.json({ config });
   } catch (error) { return fail(error); }
 }

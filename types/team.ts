@@ -8,6 +8,7 @@ export interface Team {
   gender: CompetitionGender;
   name: string;
   shortName: string;
+  iconPlayerId?: string;
   ownerName?: string;
   logoUrl?: string;
   totalBudget: number;
@@ -24,6 +25,7 @@ export type TeamInput = {
   gender: CompetitionGender;
   name: string;
   shortName: string;
+  iconPlayerId?: string;
   ownerName?: string;
   logoUrl?: string;
   totalBudget: number;

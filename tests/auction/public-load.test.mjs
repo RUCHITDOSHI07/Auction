@@ -18,6 +18,7 @@ test("load runner defaults to dry-run with no network activity", () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /"mode": "dry-run"/);
   assert.match(result.stdout, /"networkRequests": 0/);
+  assert.match(result.stdout, /"pollIntervalMs": 1500/);
 });
 
 test("load runner refuses a host without exact staging confirmation", () => {

@@ -9,15 +9,16 @@ import type { AuctionConfig } from "@/types/auction-config";
 import type { MongoPlayer } from "@/lib/services/players";
 import type { Team } from "@/types/team";
 import {
+  getIconPlayerPrice,
   DEFAULT_TOURNAMENT_CATEGORY_PRICES,
   MAX_PREMIUM_PLAYERS_PER_TEAM,
+  normalizeTournamentPlayerCategory,
 } from "@/lib/auction/category-rules";
 import type {
   CompetitionGender,
   Tournament,
   TournamentCategoryRules,
 } from "@/types/tournament";
-import { normalizeTournamentPlayerCategory } from "@/lib/auction/category-rules";
 
 type SetupPlayer = MongoPlayer & {
   tournament?: {
@@ -32,6 +33,7 @@ type TeamForm = {
   name: string;
   shortName: string;
   ownerName: string;
+  iconPlayerId: string;
 };
 type AuctionForm = {
   teamIds: string[];
@@ -54,6 +56,7 @@ const emptyTeamForm: TeamForm = {
   name: "",
   shortName: "",
   ownerName: "",
+  iconPlayerId: "",
 };
 
 function emptyAuctionForm(): AuctionForm {
@@ -99,6 +102,7 @@ export default function TournamentSetupWizard() {
     male: defaultCategoryRules(),
     female: defaultCategoryRules(),
   });
+  const [categoryRulesSaved, setCategoryRulesSaved] = useState(true);
   const [teamForm, setTeamForm] = useState<TeamForm>(emptyTeamForm);
   const [teamGender, setTeamGender] = useState<CompetitionGender>("male");
   const [auctionGender, setAuctionGender] = useState<CompetitionGender>("male");
@@ -117,17 +121,19 @@ export default function TournamentSetupWizard() {
     [tournament],
   );
   const iconGenders = useMemo(
-    () => enabledGenders.filter((gender) =>
-      categoryRules[gender].enabled && teams[gender].length > 0,
-    ),
-    [categoryRules, enabledGenders, teams],
+    () => enabledGenders.filter((gender) => {
+      return tournament?.competitions[gender].iconPlayersEnabled === undefined
+        && categoryRules[gender].enabled
+        && teams[gender].length > 0;
+    }),
+    [categoryRules, enabledGenders, teams, tournament],
   );
   const configuredGenders = useMemo(
     () => enabledGenders.filter((gender) => teams[gender].length > 0),
     [enabledGenders, teams],
   );
   const stepNames = useMemo(
-    () => ["Teams", "Import players", "Auction rules", ...(iconGenders.length ? ["Icon players"] : [])],
+    () => ["Import players", "Teams", "Auction rules", ...(iconGenders.length ? ["Icon players"] : [])],
     [iconGenders.length],
   );
 
@@ -205,6 +211,7 @@ export default function TournamentSetupWizard() {
       male: data.tournament.competitions.male.categoryRules ?? defaultCategoryRules(),
       female: data.tournament.competitions.female.categoryRules ?? defaultCategoryRules(),
     });
+    setCategoryRulesSaved(true);
     const activeGenders = genders.filter((gender) => data.tournament.competitions[gender].enabled);
     setTeamGender((current) => activeGenders.includes(current) ? current : activeGenders[0] ?? "male");
     setAuctionGender((current) =>
@@ -250,11 +257,12 @@ export default function TournamentSetupWizard() {
           tournamentId,
           gender: teamGender,
           ...teamForm,
+          ...(teamForm.iconPlayerId ? { iconPlayerId: teamForm.iconPlayerId } : {}),
           totalBudget: 100000,
           squadSize: 11,
         }),
       });
-      const result = await response.json() as { team?: Team; error?: string };
+      const result = await response.json() as { team?: Team; error?: string; warning?: string };
       if (!response.ok) throw new Error(result.error ?? "Unable to create team.");
       setTeams((current) => ({
         ...current,
@@ -268,6 +276,7 @@ export default function TournamentSetupWizard() {
         },
       }));
       setTeamForm(emptyTeamForm);
+      if (result.warning) setError(result.warning);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to create team.");
     } finally {
@@ -283,6 +292,7 @@ export default function TournamentSetupWizard() {
   }
 
   function setCategoryRule(gender: CompetitionGender, update: Partial<TournamentCategoryRules>) {
+    setCategoryRulesSaved(false);
     setCategoryRules((current) => ({
       ...current,
       [gender]: { ...current[gender], ...update },
@@ -297,9 +307,9 @@ export default function TournamentSetupWizard() {
   async function saveCategoryRules() {
     const editableGenders = enabledGenders.filter(canEditCategoryRules);
     if (editableGenders.length === 0) {
-      setStep(1);
+      setCategoryRulesSaved(true);
       setError(null);
-      return;
+      return true;
     }
     setSaving(true);
     setError(null);
@@ -322,9 +332,11 @@ export default function TournamentSetupWizard() {
         male: result.tournament.competitions.male.categoryRules ?? defaultCategoryRules(),
         female: result.tournament.competitions.female.categoryRules ?? defaultCategoryRules(),
       });
-      setStep(1);
+      setCategoryRulesSaved(true);
+      return true;
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save competition category rules.");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -411,6 +423,13 @@ export default function TournamentSetupWizard() {
 
   const currentStep = Math.min(step, stepNames.length - 1);
   const currentStepName = stepNames[currentStep];
+  const teamIconPlayersEnabled = tournament.competitions[teamGender].iconPlayersEnabled ?? categoryRules[teamGender].enabled;
+  const availableIconPlayers = players.filter((player) =>
+    player.gender === teamGender
+    && player.tournament?.status === "available"
+    && normalizeTournamentPlayerCategory(player.category) !== null
+    && !teams[teamGender].some((team) => team.iconPlayerId === player.id),
+  );
 
   return (
     <AdminShell>
@@ -420,7 +439,7 @@ export default function TournamentSetupWizard() {
           <div>
             <span className="eyebrow">TOURNAMENT SETUP · STEP {currentStep + 1} OF {stepNames.length}</span>
             <h1>{currentStepName}</h1>
-            <p>Set up teams, import the tournament player pool, configure the auction, and optionally assign icon players.</p>
+            <p>Import the player pool first, then create teams and select any pre-booked icon player for each team.</p>
           </div>
           <span className="config-draft">{tournament.season} · {tournament.name}</span>
         </div>
@@ -447,7 +466,7 @@ export default function TournamentSetupWizard() {
                 <div>
                   <span className="eyebrow">{label(teamGender).toUpperCase()} COMPETITION</span>
                   <h2>Registered teams</h2>
-                  <p>Add every team that will participate. Purse and squad limits are configured in the auction step.</p>
+                  <p>Add every team that will participate. Choose at most one pre-booked icon player per team.</p>
                 </div>
                 <div className="setup-team-count"><strong>{teams[teamGender].length}</strong><span>teams added</span></div>
               </div>
@@ -469,12 +488,67 @@ export default function TournamentSetupWizard() {
                   <small>Start by adding the first team for this competition.</small>
                 </div>
               )}
+              <form className="setup-team-form" onSubmit={(event) => void createTeam(event)}>
+                <div className="team-form-grid">
+                  <label>Team name<input required placeholder="e.g. PNPL Panthers" value={teamForm.name} onChange={(event) => setTeamForm({ ...teamForm, name: event.target.value })} /></label>
+                  <label>Short name<input required maxLength={8} placeholder="e.g. PNP" value={teamForm.shortName} onChange={(event) => setTeamForm({ ...teamForm, shortName: event.target.value })} /></label>
+                  <label className="setup-owner-field">Owner / manager <span>Optional</span><input placeholder="Add a contact name" value={teamForm.ownerName} onChange={(event) => setTeamForm({ ...teamForm, ownerName: event.target.value })} /></label>
+                  {teamIconPlayersEnabled && (
+                    <label>
+                      Pre-booked icon player
+                      <select
+                        value={teamForm.iconPlayerId}
+                        onChange={(event) => setTeamForm({ ...teamForm, iconPlayerId: event.target.value })}
+                      >
+                        <option value="">No icon player</option>
+                        {availableIconPlayers.map((player) => {
+                          const category = normalizeTournamentPlayerCategory(player.category);
+                          const amount = category
+                            ? getIconPlayerPrice(category, player.tournament?.basePrice ?? 0, categoryRules[teamGender])
+                            : 0;
+                          return <option key={player.id} value={player.id}>{player.name} · {player.category} · {formatMoney(amount)}</option>;
+                        })}
+                      </select>
+                      <small>One per team. The purchase and purse deduction are applied when auction rules are saved.</small>
+                    </label>
+                  )}
+                </div>
+                <div className="setup-form-footer">
+                  <small>Starting purse and squad limits are set in the auction rules step.</small>
+                  <button className="button button-dark" type="submit" disabled={saving}>{saving ? "Adding team..." : `Add ${label(teamGender).toLowerCase()} team`}</button>
+                </div>
+              </form>
+            </section>
+            <div className="tournament-actions">
+              <button className="button button-dark" type="button" disabled={saving || !canContinueFromTeams()} onClick={() => void saveCategoryRules()}>
+                {saving ? "Saving..." : "Save rules and continue to auction rules"}
+              </button>
+              <Link className="button button-outline" href={`/admin/tournaments/${encodeURIComponent(tournamentId)}`}>Save and exit</Link>
+            </div>
+            {!canContinueFromTeams()
+              ? <p className="tournament-help">Add at least one team to continue. You can set up other enabled competitions later.</p>
+              : enabledGenders.some((gender) => teams[gender].length === 0)
+                ? <p className="tournament-help">You can continue now and set up the other enabled competition later.</p>
+                : null}
+          </>
+        )}
+
+        {currentStepName === "Import players" && (
+          <>
+            <section className="auction-config-section">
+              <div className="setup-gender-tabs" role="tablist" aria-label="Player category competition">
+                {enabledGenders.map((gender) => (
+                  <button className={teamGender === gender ? "button button-dark" : "button button-outline"} key={gender} type="button" onClick={() => setTeamGender(gender)}>
+                    {label(gender)} categories
+                  </button>
+                ))}
+              </div>
               <section className="setup-category-rules">
                 <div className="setup-section-title">
                   <div>
                     <span className="eyebrow">PLAYER CATEGORIES</span>
-                    <h2>Category players & icon assignments</h2>
-                    <p>Configure category pricing before importing the player Excel file. Icon players are assigned after auction rules are saved.</p>
+                    <h2>Category players</h2>
+                    <p>Set category prices before importing the player Excel file. General icon-player pricing is configured separately.</p>
                   </div>
                 </div>
                 <label className="category-rules-toggle">
@@ -525,40 +599,17 @@ export default function TournamentSetupWizard() {
                 {!canEditCategoryRules(teamGender) && (
                   <p className="tournament-help">Category rules are locked because this competition already has imported players or an initialized auction.</p>
                 )}
+                {!categoryRulesSaved && (
+                  <button className="button button-outline" type="button" disabled={saving} onClick={() => void saveCategoryRules()}>
+                    {saving ? "Saving category rules..." : "Save category rules before import"}
+                  </button>
+                )}
               </section>
-              <form className="setup-team-form" onSubmit={(event) => void createTeam(event)}>
-                <div className="team-form-grid">
-                  <label>Team name<input required placeholder="e.g. PNPL Panthers" value={teamForm.name} onChange={(event) => setTeamForm({ ...teamForm, name: event.target.value })} /></label>
-                  <label>Short name<input required maxLength={8} placeholder="e.g. PNP" value={teamForm.shortName} onChange={(event) => setTeamForm({ ...teamForm, shortName: event.target.value })} /></label>
-                  <label className="setup-owner-field">Owner / manager <span>Optional</span><input placeholder="Add a contact name" value={teamForm.ownerName} onChange={(event) => setTeamForm({ ...teamForm, ownerName: event.target.value })} /></label>
-                </div>
-                <div className="setup-form-footer">
-                  <small>Starting purse and squad limits will be set in the next step.</small>
-                  <button className="button button-dark" type="submit" disabled={saving}>{saving ? "Adding team..." : `Add ${label(teamGender).toLowerCase()} team`}</button>
-                </div>
-              </form>
-            </section>
-            <div className="tournament-actions">
-              <button className="button button-dark" type="button" disabled={saving || !canContinueFromTeams()} onClick={() => void saveCategoryRules()}>
-                {saving ? "Saving..." : "Save rules and continue to player import"}
-              </button>
-              <Link className="button button-outline" href={`/admin/tournaments/${encodeURIComponent(tournamentId)}`}>Save and exit</Link>
-            </div>
-            {!canContinueFromTeams()
-              ? <p className="tournament-help">Add at least one team to continue. You can set up other enabled competitions later.</p>
-              : enabledGenders.some((gender) => teams[gender].length === 0)
-                ? <p className="tournament-help">You can continue now and set up the other enabled competition later.</p>
-                : null}
-          </>
-        )}
-
-        {currentStepName === "Import players" && (
-          <>
-            <section className="auction-config-section">
               <p>Upload one workbook for this tournament. It can contain both men&apos;s and women&apos;s players, but each player is linked only to their own enabled competition. Include a Category column (A, B, C, or General) wherever category pricing is enabled; the server applies that competition&apos;s configured prices.</p>
               <ExcelUpload
                 importEndpoint={`/api/tournaments/${encodeURIComponent(tournamentId)}/players/import`}
                 backHref={null}
+                disabled={!categoryRulesSaved}
                 categoryRules={{
                   male: categoryRules.male.enabled,
                   female: categoryRules.female.enabled,
@@ -568,8 +619,8 @@ export default function TournamentSetupWizard() {
               <p className="tournament-help">Imported tournament players: {players.length}. You can also continue and import later from the tournament page.</p>
             </section>
             <div className="tournament-actions">
-              <button className="button button-outline" type="button" onClick={() => setStep(0)}>Back</button>
-              <button className="button button-dark" type="button" onClick={() => { setStep(2); setError(null); }}>Continue to auction rules</button>
+              <Link className="button button-outline" href={`/admin/tournaments/${encodeURIComponent(tournamentId)}`}>Save and exit</Link>
+              <button className="button button-dark" type="button" onClick={() => { setStep(1); setError(null); }}>Continue to team setup</button>
             </div>
           </>
         )}
@@ -627,9 +678,9 @@ export default function TournamentSetupWizard() {
                   </div>
                   {configs[gender] && <p className="tournament-help">Saved: {configs[gender]!.teamIds.length} teams, {formatMoney(configs[gender]!.pursePerTeam)} purse.</p>}
                   {categoryRules[gender].enabled ? (
-                    <p className="tournament-help">Category pricing is enabled: A/B/C base prices are applied to imported players, and each team may buy at most {categoryRules[gender].maxPremiumPlayersPerTeam} combined A/B/C players. Icon assignments follow this step.</p>
+                    <p className="tournament-help">Category pricing is enabled: A/B/C base prices are applied to imported players, and each team may buy at most {categoryRules[gender].maxPremiumPlayersPerTeam} combined A/B/C players. Icon selections made while creating teams are charged after these auction settings are saved.</p>
                   ) : (
-                    <p className="tournament-help">Category pricing is off for this competition. Turn it on in the Teams step before importing players to enable category prices and icon assignments.</p>
+                    <p className="tournament-help">Category pricing is off for this competition. Category rules can only be changed before importing players.</p>
                   )}
                 </section>
               );

@@ -96,6 +96,10 @@ function validateTournamentInput(input: TournamentInput) {
     season,
     description: input.description?.trim() || undefined,
     competitions: { male, female },
+    iconPlayersEnabled: {
+      male: male && Boolean(input.iconPlayersEnabled?.male),
+      female: female && Boolean(input.iconPlayersEnabled?.female),
+    },
     categoryRules: {
       male: categoryRules("male"),
       female: categoryRules("female"),
@@ -142,8 +146,16 @@ export async function createTournament(input: TournamentInput): Promise<Tourname
     ...(normalized.description ? { description: normalized.description } : {}),
     status: "draft",
     competitions: {
-      male: { enabled: normalized.competitions.male, categoryRules: normalized.categoryRules.male },
-      female: { enabled: normalized.competitions.female, categoryRules: normalized.categoryRules.female },
+      male: {
+        enabled: normalized.competitions.male,
+        iconPlayersEnabled: normalized.iconPlayersEnabled.male,
+        categoryRules: normalized.categoryRules.male,
+      },
+      female: {
+        enabled: normalized.competitions.female,
+        iconPlayersEnabled: normalized.iconPlayersEnabled.female,
+        categoryRules: normalized.categoryRules.female,
+      },
     },
     createdAt: now,
     updatedAt: now,
@@ -184,11 +196,13 @@ export async function updateTournament(
         male: {
           ...existing.competitions.male,
           enabled: nextMale,
+          iconPlayersEnabled: nextMale && (changes.iconPlayersEnabled?.male ?? existing.competitions.male.iconPlayersEnabled ?? false),
           ...(changes.categoryRules?.male ? { categoryRules: changes.categoryRules.male } : {}),
         },
         female: {
           ...existing.competitions.female,
           enabled: nextFemale,
+          iconPlayersEnabled: nextFemale && (changes.iconPlayersEnabled?.female ?? existing.competitions.female.iconPlayersEnabled ?? false),
           ...(changes.categoryRules?.female ? { categoryRules: changes.categoryRules.female } : {}),
         },
       },

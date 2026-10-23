@@ -42,7 +42,7 @@ function toImportRow(row:Record<string,unknown>, categoryRules?:Partial<Record<C
   };
 }
 
-export default function ExcelUpload({ importEndpoint="/api/players/import", backHref="/admin/players", categoryRules, onImportComplete }: { importEndpoint?:string; backHref?:string | null; categoryRules?:Partial<Record<CompetitionGender,boolean>>; onImportComplete?:()=>void }) {
+export default function ExcelUpload({ importEndpoint="/api/players/import", backHref="/admin/players", categoryRules, onImportComplete, disabled=false }: { importEndpoint?:string; backHref?:string | null; categoryRules?:Partial<Record<CompetitionGender,boolean>>; onImportComplete?:()=>void; disabled?:boolean }) {
   const fileInput=useRef<HTMLInputElement>(null); const [previewRows,setPreviewRows]=useState(sampleRows);
   const [summary,setSummary]=useState<ImportSummary>({...emptySummary,found:sampleRows.length}); const [message,setMessage]=useState<string|null>(null); const [processing,setProcessing]=useState(false);
 
@@ -67,7 +67,7 @@ export default function ExcelUpload({ importEndpoint="/api/players/import", back
     <div className="section-heading"><h2>Import players</h2>{backHref&&<Link className="text-link" href={backHref}>Back →</Link>}</div>
     <div className="upload-card"><div className="upload-placeholder"><span>⇪</span><strong>Upload Excel File</strong><small>One file can contain both Male and Female players.</small></div><div className="upload-actions">
       <input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" hidden onChange={function(e){const file=e.target.files?.[0];if(file)void handleFile(file);e.target.value="";}}/>
-      <button className="button button-dark" type="button" onClick={function(){fileInput.current?.click();}} disabled={processing}>{processing?"Processing...":"Select file"}</button>
+      <button className="button button-dark" type="button" onClick={function(){fileInput.current?.click();}} disabled={processing||disabled}>{processing?"Processing...":"Select file"}</button>
       <a className="button button-outline" href="/player-import-template.xlsx" download="cricket-auction-player-import-template.xlsx">Download Excel template</a>
     </div></div>
     <div className="import-summary-grid"><div className="mini-stat"><label>Players found</label><strong>{summary.found}</strong></div><div className="mini-stat success"><label>Valid</label><strong>{summary.valid}</strong></div><div className="mini-stat warning"><label>Warnings</label><strong>{summary.warnings}</strong></div><div className="mini-stat danger"><label>Errors</label><strong>{summary.errors}</strong></div></div>

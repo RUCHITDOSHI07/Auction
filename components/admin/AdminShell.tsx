@@ -12,6 +12,42 @@ const navigation = [
   { href: "/history", label: "Auction history", icon: "◷" },
 ];
 
+type AdminSession = { admin: { userId: string; name?: string } };
+
+let cachedAdminSession: { value: AdminSession; expiresAt: number } | null = null;
+let adminSessionRequest: Promise<AdminSession> | null = null;
+const adminSessionCacheMs = 60_000;
+
+function getAdminSession() {
+  if (cachedAdminSession && cachedAdminSession.expiresAt > Date.now()) {
+    return Promise.resolve(cachedAdminSession.value);
+  }
+  if (!adminSessionRequest) {
+    adminSessionRequest = fetch("/api/auth/session")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unauthenticated");
+        return response.json() as Promise<AdminSession>;
+      })
+      .then((session) => {
+        cachedAdminSession = { value: session, expiresAt: Date.now() + adminSessionCacheMs };
+        return session;
+      })
+      .catch((error: unknown) => {
+        cachedAdminSession = null;
+        throw error;
+      })
+      .finally(() => {
+        adminSessionRequest = null;
+      });
+  }
+  return adminSessionRequest;
+}
+
+function clearAdminSessionCache() {
+  cachedAdminSession = null;
+  adminSessionRequest = null;
+}
+
 export default function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -21,11 +57,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/auth/session")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Unauthenticated");
-        return response.json() as Promise<{ admin: { userId: string; name?: string } }>;
-      })
+    getAdminSession()
       .then(({ admin }) => {
         if (!active) return;
         setAuthUser(admin);
@@ -84,6 +116,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             className="nav-item admin-logout"
             type="button"
             onClick={() => {
+              clearAdminSessionCache();
               void fetch("/api/auth/logout", { method: "POST" }).finally(() => router.replace("/admin/login"));
             }}
           >
@@ -101,7 +134,10 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             <button
               className="button button-outline admin-top-logout"
               type="button"
-              onClick={() => { void fetch("/api/auth/logout", { method: "POST" }).finally(() => router.replace("/admin/login")); }}
+              onClick={() => {
+                clearAdminSessionCache();
+                void fetch("/api/auth/logout", { method: "POST" }).finally(() => router.replace("/admin/login"));
+              }}
             >
               Sign out <span aria-hidden="true">↪</span>
             </button>

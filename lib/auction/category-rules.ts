@@ -1,4 +1,5 @@
 import type {
+  TournamentCategoryRules,
   TournamentCategoryPrices,
   TournamentPlayerCategory,
 } from "@/types/tournament";
@@ -44,4 +45,17 @@ export function getTournamentCategoryBasePrice(
   const normalized = normalizeTournamentPlayerCategory(category);
   if (!normalized) throw new Error("Player category must be A, B, C, or General.");
   return prices[normalized];
+}
+
+export function getIconPlayerPrice(
+  category: unknown,
+  tournamentBasePrice: number,
+  rules?: TournamentCategoryRules,
+): number {
+  const normalizedCategory = normalizeTournamentPlayerCategory(category);
+  if (!normalizedCategory) throw new Error("Icon player must have category A, B, C, or General.");
+  if (normalizedCategory === "General") return rules?.generalIconPrice ?? 15000;
+  return rules?.enabled
+    ? getTournamentCategoryBasePrice(normalizedCategory, rules.basePrices)
+    : tournamentBasePrice;
 }

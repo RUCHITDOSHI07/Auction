@@ -11,10 +11,11 @@ import { auctionResultDisplayMs } from "@/lib/auction/results";
 import { getEffectiveAuctionPurchases } from "@/lib/auction/transactions";
 import {
   canAddPremiumPlayer,
-  getTournamentCategoryBasePrice,
+  getIconPlayerPrice,
   isPremiumPlayerCategory,
   normalizeTournamentPlayerCategory,
 } from "@/lib/auction/category-rules";
+import { orderAuctionPlayers } from "@/lib/auction/player-order";
 import type { TournamentCategoryRules } from "@/types/tournament";
 
 type AuctionDocument = AuctionConfig & { _id?: unknown };
@@ -167,16 +168,50 @@ async function getTeamViews(
   excludeTransactionId?: string,
 ): Promise<AuctionTeamView[]> {
   const poolIds = auction.playerPoolIds ?? [];
-  const teams = await collections.teams
+  const readTeams = () => collections.teams
     .find({ id: { $in: auction.teamIds }, tournamentId: auction.tournamentId, gender: auction.gender, status: "active" }, { session })
     .sort({ name: 1 })
     .toArray();
-  const transactions = await collections.transactions
+  const readTransactions = () => collections.transactions
     .find({ auctionId: auction.id }, {
       session,
       projection: { transactionId: 1, reversesTransactionId: 1, type: 1, teamId: 1, amount: 1, playerId: 1, category: 1 },
     })
     .toArray();
+  const readCurrentPlayer = () => auction.categoryRules?.enabled && auction.currentPlayerId
+    ? collections.tournamentPlayers.findOne(
+        { tournamentId: auction.tournamentId, gender: auction.gender, playerId: auction.currentPlayerId },
+        { session, projection: { playerId: 1, category: 1 } },
+      )
+    : Promise.resolve(null);
+  const readRemainingPlayers = () => poolIds.length
+    ? collections.tournamentPlayers
+        .find({
+          tournamentId: auction.tournamentId,
+          gender: auction.gender,
+          playerId: { $in: poolIds, ...(auction.currentPlayerId ? { $ne: auction.currentPlayerId } : {}) },
+          status: { $in: ["available", "unsold"] },
+        }, { session })
+        .toArray()
+    : Promise.resolve([] as TournamentPlayerDocument[]);
+
+  let teams: TeamDocument[];
+  let transactions: AuctionTransactionDocument[];
+  let currentPlayer: TournamentPlayerDocument | null;
+  let remainingPlayers: TournamentPlayerDocument[];
+  if (session) {
+    teams = await readTeams();
+    transactions = await readTransactions();
+    currentPlayer = await readCurrentPlayer();
+    remainingPlayers = await readRemainingPlayers();
+  } else {
+    [teams, transactions, currentPlayer, remainingPlayers] = await Promise.all([
+      readTeams(),
+      readTransactions(),
+      readCurrentPlayer(),
+      readRemainingPlayers(),
+    ]);
+  }
   const purchases = getEffectiveAuctionPurchases(transactions, excludeTransactionId);
   const missingCategories = purchases.filter((purchase) => !purchase.category).map((purchase) => purchase.playerId);
   const fallbackCategories = missingCategories.length
@@ -186,23 +221,7 @@ async function getTeamViews(
       ).toArray()
     : [];
   const categoryByPlayerId = new Map(fallbackCategories.map((player) => [player.id, player.category]));
-  const currentPlayer = auction.categoryRules?.enabled && auction.currentPlayerId
-    ? await collections.tournamentPlayers.findOne(
-        { tournamentId: auction.tournamentId, gender: auction.gender, playerId: auction.currentPlayerId },
-        { session, projection: { playerId: 1, category: 1 } },
-      )
-    : null;
   const currentPlayerIsPremium = isPremiumPlayerCategory(currentPlayer?.category);
-  const remainingPlayers = poolIds.length
-    ? await collections.tournamentPlayers
-        .find({
-          tournamentId: auction.tournamentId,
-          gender: auction.gender,
-          playerId: { $in: poolIds, ...(auction.currentPlayerId ? { $ne: auction.currentPlayerId } : {}) },
-          status: { $in: ["available", "unsold"] },
-        }, { session })
-        .toArray()
-    : [];
 
   const eligiblePlayers = remainingPlayers.filter(
     (player) => player.status === "available" || (player.lastAuctionRound ?? 0) < (auction.currentRound ?? 1),
@@ -296,7 +315,15 @@ export async function getAuctionRoom(
   if (!document) return { auction: null, currentPlayer: null, teams: [], playerCount: 0, roundTotal: 0, roundSoldCount: 0, roundUnsoldCount: 0 };
 
   const auction = withoutId(document) as AuctionConfig;
-  const [teams, currentPlayerData] = await Promise.all([
+  const roundEntriesQuery = auction.currentRound && auction.roundPlayerIds?.length
+    ? collections.tournamentPlayers.find({
+        tournamentId,
+        gender,
+        playerId: { $in: auction.roundPlayerIds },
+        lastAuctionRound: auction.currentRound,
+      }).toArray()
+    : Promise.resolve([]);
+  const [teams, currentPlayerData, roundEntries] = await Promise.all([
     getTeamViews(collections, auction),
     auction.currentPlayerId
       ? Promise.all([
@@ -304,6 +331,7 @@ export async function getAuctionRoom(
           collections.tournamentPlayers.findOne({ tournamentId, playerId: auction.currentPlayerId, gender }),
         ])
       : Promise.resolve([null, null] as const),
+    roundEntriesQuery,
   ]);
   const [player, tournamentPlayer] = currentPlayerData;
   if (auction.currentPlayerId && (!player || !tournamentPlayer || player.gender !== gender)) {
@@ -317,15 +345,6 @@ export async function getAuctionRoom(
         auctionStatus: tournamentPlayer.status,
       }
     : null;
-  const roundEntries = auction.currentRound && auction.roundPlayerIds?.length
-    ? await collections.tournamentPlayers.find({
-        tournamentId,
-        gender,
-        playerId: { $in: auction.roundPlayerIds },
-        lastAuctionRound: auction.currentRound,
-      }).toArray()
-    : [];
-
   return {
     auction,
     currentPlayer,
@@ -373,6 +392,7 @@ export async function initializeAuction(
   if (pool.some((player) => !Number.isFinite(player.basePrice) || player.basePrice < 0)) {
     throw new Error("Every eligible player must have a valid non-negative base price.");
   }
+  const orderedPool = orderAuctionPlayers(pool);
   const priorPurchases = getEffectiveAuctionPurchases(
     await collections.transactions.find({ auctionId: auction.id }).toArray(),
   );
@@ -393,7 +413,7 @@ export async function initializeAuction(
   }
 
   const now = new Date();
-  const playerPoolIds = pool.map((player) => player.playerId);
+  const playerPoolIds = orderedPool.map((player) => player.playerId);
   const updatedAuction: AuctionConfig = {
     ...withoutId(auction),
     status: "ready",
@@ -402,7 +422,7 @@ export async function initializeAuction(
     roundStatus: "not_started",
     playerPoolIds,
     currentPlayerId: playerPoolIds[0],
-    currentBid: pool[0].basePrice,
+    currentBid: orderedPool[0].basePrice,
     initializedAt: now,
     updatedAt: now,
   };
@@ -1063,14 +1083,22 @@ export async function assignPreAuctionIconPlayers(
   if (auction.status !== "draft" || auction.playerPoolIds) {
     throw new Error("Icon players must be assigned before auction initialization.");
   }
-  const rules: TournamentCategoryRules | undefined = auction.categoryRules;
-  if (!rules?.enabled) throw new Error("Category rules are not enabled for this competition.");
-  if (!Array.isArray(assignments)) throw new Error("Icon player assignments must be a list.");
-  if (assignments.length === 0) {
-    const existing = await collections.transactions.findOne({ auctionId: auction.id, source: "icon", type: "purchase" });
-    if (existing) throw new Error("Icon players have already been assigned for this competition.");
-    return { assigned: 0 };
+  const tournament = await collections.database.collection("tournaments").findOne({
+    id: tournamentId,
+  }, { projection: {
+    [`competitions.${gender}.iconPlayersEnabled`]: 1,
+    [`competitions.${gender}.categoryRules`]: 1,
+  } });
+  const iconPlayersEnabled = tournament?.competitions?.[gender]?.iconPlayersEnabled
+    ?? tournament?.competitions?.[gender]?.categoryRules?.enabled
+    ?? false;
+  if (!iconPlayersEnabled) {
+    throw new Error("Pre-booked icon players are not enabled for this competition.");
   }
+  const rules: TournamentCategoryRules | undefined = auction.categoryRules
+    ?? tournament?.competitions?.[gender]?.categoryRules;
+  if (!Array.isArray(assignments)) throw new Error("Icon player assignments must be a list.");
+  if (assignments.length === 0) return { assigned: 0 };
 
   const assignedTeamIds = assignments.map((assignment) => assignment.teamId);
   const assignedPlayerIds = assignments.map((assignment) => assignment.playerId);
@@ -1088,13 +1116,6 @@ export async function assignPreAuctionIconPlayers(
   const session = collections.database.client.startSession();
   try {
     await session.withTransaction(async () => {
-      const existing = await collections.transactions.findOne({
-        auctionId: auction.id,
-        source: "icon",
-        type: "purchase",
-      }, { session });
-      if (existing) throw new Error("Icon players have already been assigned for this competition.");
-
       const teams = await collections.teams.find({
         id: { $in: assignedTeamIds },
         tournamentId,
@@ -1140,16 +1161,17 @@ export async function assignPreAuctionIconPlayers(
         }
         const category = normalizeTournamentPlayerCategory(tournamentPlayer.category ?? player.category);
         if (!category) throw new Error(`Player ${player.name ?? player.id} must have category A, B, C, or General.`);
-        const amount = category === "General"
-          ? rules.generalIconPrice
-          : getTournamentCategoryBasePrice(category, rules.basePrices);
+        const amount = getIconPlayerPrice(category, tournamentPlayer.basePrice, rules);
+        if (!Number.isSafeInteger(amount) || amount <= 0) {
+          throw new Error(`${player.name ?? player.id} has an invalid icon-player price.`);
+        }
         const teamPurchases = purchasesByTeam.get(team.id) ?? [];
         const premiumCount = teamPurchases.filter((purchase) =>
           isPremiumPlayerCategory(purchase.category),
         ).length;
         const alreadyAssignedIcon = teamPurchases.some((purchase) => purchase.source === "icon");
         if (alreadyAssignedIcon) throw new Error(`${team.name} already has a pre-auction icon player.`);
-        if (!canAddPremiumPlayer(category, premiumCount, rules.maxPremiumPlayersPerTeam)) {
+        if (rules?.enabled && !canAddPremiumPlayer(category, premiumCount, rules.maxPremiumPlayersPerTeam)) {
           throw new Error(`${team.name} has reached its A/B/C category player limit.`);
         }
         if (teamPurchases.length >= auction.maximumSquadSize) {
@@ -1229,6 +1251,39 @@ export async function assignPreAuctionIconPlayers(
   }
 
   return { assigned: assignments.length };
+}
+
+export async function assignConfiguredTeamIconPlayers(
+  tournamentId: string,
+  gender: CompetitionGender,
+  admin: AdminUser,
+) {
+  const collections = await getCollections();
+  const auction = await collections.auctions.findOne({ tournamentId, gender });
+  if (!auction) return { assigned: 0 };
+
+  const [teams, purchases] = await Promise.all([
+    collections.teams.find({
+      tournamentId,
+      gender,
+      id: { $in: auction.teamIds },
+      iconPlayerId: { $type: "string" },
+    }, { projection: { id: 1, iconPlayerId: 1 } }).toArray(),
+    collections.transactions.find({
+      auctionId: auction.id,
+      source: "icon",
+      type: "purchase",
+    }, { projection: { teamId: 1, playerId: 1 } }).toArray(),
+  ]);
+  const assigned = new Set(purchases.map((purchase) => `${purchase.teamId}:${purchase.playerId}`));
+  const assignments = teams.flatMap((team) =>
+    team.iconPlayerId && !assigned.has(`${team.id}:${team.iconPlayerId}`)
+      ? [{ teamId: team.id, playerId: team.iconPlayerId }]
+      : [],
+  );
+  if (assignments.length === 0) return { assigned: 0 };
+
+  return assignPreAuctionIconPlayers(tournamentId, gender, assignments, admin);
 }
 
 export async function submitAuctionBid(

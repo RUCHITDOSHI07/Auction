@@ -1,0 +1,71 @@
+.page :global(.back-link) {
+  color:var(--lime);
+}
+
+.page :global(.auction-config-head p) {
+  color:#b7c5bd;
+}
+
+.page :global(.config-ready),
+.page :global(.config-draft) {
+  border-color:rgba(167,216,122,.28);
+  border-radius:5px;
+  background:rgba(167,216,122,.1);
+  color:#d1eabb;
+}
+
+.page :global(.auction-config-section) {
+  border:1px solid rgba(221,237,226,.14);
+  border-radius:8px;
+  background:linear-gradient(145deg,#14231e 0%,#101a17 100%);
+  color:var(--cream);
+  box-shadow:0 16px 42px rgba(0,0,0,.2);
+}
+
+.page :global(.auction-config-section h2) {
+  color:var(--cream);
+}
+
+.page :global(.auction-config-section p) {
+  color:#aebdb5;
+}
+
+.page :global(.auction-team) {
+  border-color:rgba(221,237,226,.15);
+  border-radius:6px;
+  background:#192722;
+  color:var(--cream);
+}
+
+.page :global(.auction-team:hover) {
+  border-color:rgba(167,216,122,.42);
+  background:#20332a;
+}
+
+.page :global(.auction-team.selected) {
+  border-color:rgba(167,216,122,.58);
+  background:rgba(167,216,122,.12);
+}
+
+.page :global(.auction-team input) {
+  accent-color:var(--lime);
+}
+
+.page :global(.auction-team strong) {
+  color:var(--cream);
+}
+
+.page :global(.auction-team small) {
+  color:#b0c0b7;
+}
+
+.page :global(.auction-rule-grid label) {
+  color:#c3d0c8;
+}
+
+.page :global(.auction-rule-grid input) {
+  border:1px solid var(--line);
+  border-radius:5px;
+  background:#0b1412;
+  color:var(--cream);
+}

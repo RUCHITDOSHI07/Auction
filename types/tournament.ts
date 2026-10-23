@@ -19,6 +19,7 @@ export interface TournamentCategoryRules {
 
 export interface TournamentCompetition {
   enabled: boolean;
+  iconPlayersEnabled?: boolean;
   categoryRules?: TournamentCategoryRules;
 }
 
@@ -44,5 +45,6 @@ export type TournamentInput = {
     male: boolean;
     female: boolean;
   };
+  iconPlayersEnabled?: Record<CompetitionGender, boolean>;
   categoryRules?: Record<CompetitionGender, TournamentCategoryRules>;
 };

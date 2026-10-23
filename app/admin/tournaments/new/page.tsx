@@ -38,6 +38,7 @@ export default function NewTournamentPage() {
   const [description, setDescription] = useState("");
   const [male, setMale] = useState(true);
   const [female, setFemale] = useState(true);
+  const [iconPlayersEnabled, setIconPlayersEnabled] = useState({ male: false, female: false });
   const [categoryRules, setCategoryRules] = useState(defaultCategoryRules);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +63,7 @@ export default function NewTournamentPage() {
           season: Number(season),
           description,
           competitions: { male, female },
+          iconPlayersEnabled,
           categoryRules,
         }),
       });
@@ -78,8 +80,24 @@ export default function NewTournamentPage() {
   function renderCategorySetup(gender: CompetitionGender, enabled: boolean) {
     const label = gender === "male" ? "Men's" : "Women's";
     const rules = categoryRules[gender];
+    const hasIconPlayers = iconPlayersEnabled[gender];
     return (
       <div className="tournament-section" key={gender}>
+        <label className="category-rules-toggle">
+          <input
+            type="checkbox"
+            checked={hasIconPlayers}
+            disabled={!enabled}
+            onChange={(event) => setIconPlayersEnabled((current) => ({
+              ...current,
+              [gender]: event.target.checked,
+            }))}
+          />
+          <span>
+            <strong>Pre-booked icon players for {label.toLowerCase()}</strong>
+            <small>Optional. You can select one icon player while creating each team after importing players.</small>
+          </span>
+        </label>
         <label className="category-rules-toggle">
           <input
             type="checkbox"
@@ -109,22 +127,21 @@ export default function NewTournamentPage() {
                 />
               </label>
             ))}
-            <label>
-              General icon-player price
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={rules.generalIconPrice}
-                onChange={(event) => updateRules(gender, { generalIconPrice: Number(event.target.value) })}
-                required
-              />
-            </label>
-            <p className="tournament-help category-price-help">
-              A/B/C icon players cost their category base price. A General icon player costs the amount set above.
-              General players bought during the auction use the General base price.
-            </p>
           </div>
+        )}
+        {hasIconPlayers && enabled && (
+          <label className="category-rule-grid">
+            General icon-player price
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={rules.generalIconPrice}
+              onChange={(event) => updateRules(gender, { generalIconPrice: Number(event.target.value) })}
+              required
+            />
+            <small>A/B/C icon players use their tournament base price. General icon price is configurable per competition.</small>
+          </label>
         )}
       </div>
     );
@@ -136,7 +153,7 @@ export default function NewTournamentPage() {
         <PageHeader
           eyebrow="TOURNAMENT SETUP · STEP 1"
           title="Create tournament"
-          description="Set up the competitions and optional category rules. Next, a guided setup will take you through teams, player Excel import, auction rules, and optional icon players."
+          description="Set up competitions and optional pre-booked icon players. Next, import the player pool, create teams with their icon player, and configure the auction."
           action={<Link className="button button-outline" href="/admin/tournaments">← Back</Link>}
         />
         <form className="tournament-form" onSubmit={submit}>
