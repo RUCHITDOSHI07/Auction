@@ -182,7 +182,7 @@ Tournament creation may independently enable category pricing for the men's and 
 
 Tournament creation may independently enable pre-booked icon players for the men's and women's competitions. After importing players, the admin may select at most one icon player while creating each team. A/B/C icon players use the configured category base price when category pricing is enabled, or the imported tournament-player base price otherwise. The General icon-player price is configurable per competition (default 15,000). Icon selections are finalized when auction settings are saved: each becomes a canonical purchase recorded in tournament-player state, the auction transaction ledger, and auction history; it deducts from the team's purse, counts toward squad size, and is excluded from the remaining auction pool.
 
-When category rules are enabled, a team may acquire at most two players combined from categories A, B, and C. This limit includes pre-auction icon purchases and must be enforced by server-side bid, sale, and sale-correction validation. General-category players do not count toward this cap. Teams without the category option enabled retain the existing auction behavior.
+When category rules are enabled, a team may acquire at most two players combined from categories A, B, and C. This limit includes pre-auction icon purchases and must be enforced by server-side bid, sale, and sale-correction validation. General-category players do not count toward this cap. The auction presents A/B/C players in a randomized combined order before General players; while the category phase is active, unsold A/B/C players are eligible in subsequent rounds. General players begin only after every team's A/B/C quota is met, including icon purchases. Teams without the category option enabled retain the existing auction behavior.
 
 The admin's guided tournament setup includes tournament/competition rules, player-pool import, manual team creation with optional icon selection, and auction purse/squad/team configuration. Men's and women's settings, player pools, teams, and purchases remain isolated.
 
@@ -637,7 +637,7 @@ Public routes should follow the tournament/competition structure, for example:
 - /live/[tournamentId]/men
 - /live/[tournamentId]/women
 
-The viewer is read-only and mobile-first.
+The viewer is read-only and mobile-first. Public player directories and results must be scoped to a selected tournament and competition (Men's or Women's); never display players or results across unrelated tournaments or mix competition genders. Public player data must use an explicit safe field projection and must not expose contact or private profile fields.
 
 Show:
 

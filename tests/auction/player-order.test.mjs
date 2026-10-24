@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { orderAuctionPlayers } from "../../lib/auction/player-order.ts";
 
-test("orders A, B, and C players before a randomized General tail", () => {
+test("randomizes A, B, and C together before a separately randomized General tail", () => {
   const players = [
     { id: "general-1", category: "General" },
     { id: "c-1", category: "C" },
@@ -16,8 +16,8 @@ test("orders A, B, and C players before a randomized General tail", () => {
 
   assert.deepEqual(ordered.map((player) => player.id), [
     "a-1",
-    "a-2",
     "b-1",
+    "a-2",
     "c-1",
     "general-2",
     "general-1",

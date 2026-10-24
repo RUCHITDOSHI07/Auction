@@ -392,10 +392,25 @@ export async function initializeAuction(
   if (pool.some((player) => !Number.isFinite(player.basePrice) || player.basePrice < 0)) {
     throw new Error("Every eligible player must have a valid non-negative base price.");
   }
-  const orderedPool = orderAuctionPlayers(pool);
   const priorPurchases = getEffectiveAuctionPurchases(
     await collections.transactions.find({ auctionId: auction.id }).toArray(),
   );
+  const masterPlayerIds = [...new Set([
+    ...pool.map((player) => player.playerId),
+    ...priorPurchases.map((purchase) => purchase.playerId),
+  ])];
+  const masterPlayers = await collections.players
+    .find({ id: { $in: masterPlayerIds } }, { projection: { id: 1, gender: 1, category: 1 } })
+    .toArray();
+  const masterPlayerById = new Map(masterPlayers.map((player) => [player.id, player]));
+  const gendersByPlayerId = new Map(masterPlayers.map((player) => [player.id, player.gender]));
+  if (pool.some((player) => gendersByPlayerId.get(player.playerId) !== gender)) {
+    throw new Error("Every eligible tournament player must exist and match this competition's gender.");
+  }
+  const orderedPool = orderAuctionPlayers(pool.map((player) => ({
+    ...player,
+    category: player.category ?? masterPlayerById.get(player.playerId)?.category,
+  })));
   const playersNeeded = teams.reduce((needed, team) => {
     const alreadyPurchased = priorPurchases.filter((purchase) => purchase.teamId === team.id).length;
     return needed + Math.max(0, auction.minimumSquadSize - alreadyPurchased);
@@ -404,25 +419,48 @@ export async function initializeAuction(
     throw new Error("The eligible player pool is too small to satisfy the remaining minimum squad places.");
   }
 
-  const masterPlayers = await collections.players
-    .find({ id: { $in: pool.map((player) => player.playerId) } }, { projection: { id: 1, gender: 1 } })
-    .toArray();
-  const gendersByPlayerId = new Map(masterPlayers.map((player) => [player.id, player.gender]));
-  if (pool.some((player) => gendersByPlayerId.get(player.playerId) !== gender)) {
-    throw new Error("Every eligible tournament player must exist and match this competition's gender.");
+  const categoryRulesEnabled = Boolean(auction.categoryRules?.enabled);
+  const premiumLimit = auction.categoryRules?.maxPremiumPlayersPerTeam ?? 2;
+  const premiumPurchasesByTeam = new Map<string, number>();
+  for (const purchase of priorPurchases) {
+    const category = purchase.category ?? masterPlayerById.get(purchase.playerId)?.category;
+    if (isPremiumPlayerCategory(category)) {
+      premiumPurchasesByTeam.set(purchase.teamId, (premiumPurchasesByTeam.get(purchase.teamId) ?? 0) + 1);
+    }
+  }
+  const premiumPlayersNeeded = categoryRulesEnabled
+    ? teams.reduce((needed, team) => needed + Math.max(0, premiumLimit - (premiumPurchasesByTeam.get(team.id) ?? 0)), 0)
+    : 0;
+  const premiumPool = orderedPool.filter((player) => isPremiumPlayerCategory(player.category ?? masterPlayerById.get(player.playerId)?.category));
+  const generalPool = orderedPool.filter((player) => !isPremiumPlayerCategory(player.category ?? masterPlayerById.get(player.playerId)?.category));
+  if (premiumPool.length < premiumPlayersNeeded) {
+    throw new Error(`The eligible A/B/C player pool has ${premiumPool.length} players but ${premiumPlayersNeeded} more are needed to fill every team's category quota.`);
+  }
+  const categoryPhase = categoryRulesEnabled
+    ? premiumPlayersNeeded > 0 ? "premium" as const : "general" as const
+    : undefined;
+  const firstPhasePool = categoryPhase === "premium"
+    ? premiumPool
+    : categoryPhase === "general"
+      ? generalPool
+      : orderedPool;
+  if (firstPhasePool.length === 0) {
+    throw new Error("No eligible players remain for the next auction phase.");
   }
 
   const now = new Date();
   const playerPoolIds = orderedPool.map((player) => player.playerId);
+  const roundPlayerIds = firstPhasePool.map((player) => player.playerId);
   const updatedAuction: AuctionConfig = {
     ...withoutId(auction),
     status: "ready",
     currentRound: 1,
-    roundPlayerIds: playerPoolIds,
+    roundPlayerIds,
+    ...(categoryPhase ? { categoryPhase } : {}),
     roundStatus: "not_started",
     playerPoolIds,
-    currentPlayerId: playerPoolIds[0],
-    currentBid: orderedPool[0].basePrice,
+    currentPlayerId: roundPlayerIds[0],
+    currentBid: firstPhasePool[0].basePrice,
     initializedAt: now,
     updatedAt: now,
   };
@@ -437,6 +475,7 @@ export async function initializeAuction(
             status: updatedAuction.status,
             currentRound: updatedAuction.currentRound,
             roundPlayerIds: updatedAuction.roundPlayerIds,
+            ...(updatedAuction.categoryPhase ? { categoryPhase: updatedAuction.categoryPhase } : {}),
             roundStatus: updatedAuction.roundStatus,
             playerPoolIds: updatedAuction.playerPoolIds,
             currentPlayerId: updatedAuction.currentPlayerId,
@@ -545,8 +584,9 @@ export async function startNextAuctionRound(auctionId: string, admin: AdminUser)
           { lastAuctionRound: { $lt: nextRound } },
         ],
       }, { session }).toArray();
-      unsoldPlayers.sort((left, right) => poolIds.indexOf(left.playerId) - poolIds.indexOf(right.playerId));
-      const firstPlayer = unsoldPlayers[0];
+      const phasePlayers = await filterAuctionPlayersByCategoryPhase(collections, unsoldPlayers, auction.categoryPhase, session);
+      phasePlayers.sort((left, right) => poolIds.indexOf(left.playerId) - poolIds.indexOf(right.playerId));
+      const firstPlayer = phasePlayers[0];
       if (!firstPlayer) throw new Error("There are no unsold eligible players for another round.");
 
       const player = await collections.players.findOne({ id: firstPlayer.playerId }, { session });
@@ -568,7 +608,7 @@ export async function startNextAuctionRound(auctionId: string, admin: AdminUser)
       );
       if (playerUpdate.modifiedCount !== 1) throw new Error("The first unsold player changed; reload and try again.");
 
-      const roundPlayerIds = unsoldPlayers.map((candidate) => candidate.playerId);
+      const roundPlayerIds = phasePlayers.map((candidate) => candidate.playerId);
       const result = await collections.auctions.updateOne(
         { id: auctionId, status: "live", roundStatus: "complete", currentRound: auction.currentRound },
         {
@@ -587,7 +627,13 @@ export async function startNextAuctionRound(auctionId: string, admin: AdminUser)
       if (result.modifiedCount !== 1) throw new Error("Auction changed while starting the next round.");
       await appendHistory(collections, auction, "ROUND_STARTED", session, admin, {
         before: { round: auction.currentRound, roundStatus: "complete" },
-        after: { round: nextRound, roundStatus: "in_progress", playerCount: roundPlayerIds.length, currentPlayerId: firstPlayer.playerId },
+        after: {
+          round: nextRound,
+          roundStatus: "in_progress",
+          ...(auction.categoryPhase ? { categoryPhase: auction.categoryPhase } : {}),
+          playerCount: roundPlayerIds.length,
+          currentPlayerId: firstPlayer.playerId,
+        },
       });
     });
   } finally {
@@ -1469,6 +1515,15 @@ async function advanceAuctionPlayer(
   admin: AdminUser,
 ) {
   const currentRound = auction.currentRound ?? 1;
+  if (auction.categoryPhase === "premium" && auction.categoryRules?.enabled) {
+    const teams = await getTeamViews(collections, auction, session);
+    const premiumLimit = auction.categoryRules.maxPremiumPlayersPerTeam;
+    if (teams.length > 0 && teams.every((team) => team.premiumPlayersCount >= premiumLimit)) {
+      await startGeneralAuctionPhase(collections, auction, completedPlayerId, session, admin);
+      return;
+    }
+  }
+
   const roundPlayerIds = auction.roundPlayerIds ?? auction.playerPoolIds ?? [];
   const candidates = await collections.tournamentPlayers.find({
     tournamentId: auction.tournamentId,
@@ -1547,6 +1602,105 @@ async function advanceAuctionPlayer(
   await appendHistory(collections, auction, "ROUND_COMPLETED", session, admin, {
     before: { currentPlayerId: completedPlayerId, round: currentRound },
     after: { roundStatus: "complete" },
+  });
+}
+
+async function filterAuctionPlayersByCategoryPhase(
+  collections: Awaited<ReturnType<typeof getCollections>>,
+  players: TournamentPlayerDocument[],
+  categoryPhase: AuctionConfig["categoryPhase"],
+  session: ClientSession,
+) {
+  if (!categoryPhase) return players;
+  const missingCategoryIds = players.filter((player) => !player.category).map((player) => player.playerId);
+  const fallbackPlayers = missingCategoryIds.length
+    ? await collections.players.find(
+        { id: { $in: missingCategoryIds } },
+        { session, projection: { id: 1, category: 1 } },
+      ).toArray()
+    : [];
+  const categoryByPlayerId = new Map(fallbackPlayers.map((player) => [player.id, player.category]));
+  return players.filter((player) => {
+    const premium = isPremiumPlayerCategory(player.category ?? categoryByPlayerId.get(player.playerId));
+    return categoryPhase === "premium" ? premium : !premium;
+  });
+}
+
+async function startGeneralAuctionPhase(
+  collections: Awaited<ReturnType<typeof getCollections>>,
+  auction: AuctionConfig,
+  completedPlayerId: string,
+  session: ClientSession,
+  admin: AdminUser,
+) {
+  const playerPoolIds = auction.playerPoolIds ?? [];
+  const availablePlayers = await collections.tournamentPlayers.find({
+    tournamentId: auction.tournamentId,
+    gender: auction.gender,
+    playerId: { $in: playerPoolIds },
+    status: "available",
+  }, { session }).toArray();
+  const generalPlayers = await filterAuctionPlayersByCategoryPhase(collections, availablePlayers, "general", session);
+  generalPlayers.sort((left, right) => playerPoolIds.indexOf(left.playerId) - playerPoolIds.indexOf(right.playerId));
+  const roundPlayerIds = generalPlayers.map((player) => player.playerId);
+  const firstPlayer = generalPlayers[0];
+
+  if (!firstPlayer) {
+    const result = await collections.auctions.updateOne(
+      { id: auction.id, status: "live", currentPlayerId: completedPlayerId },
+      {
+        $set: {
+          categoryPhase: "general",
+          roundPlayerIds: [],
+          currentBid: 0,
+          roundStatus: "complete",
+          awaitingAdvance: false,
+          updatedAt: new Date(),
+        },
+        $unset: { currentPlayerId: "", highestTeamId: "" },
+      },
+      { session },
+    );
+    if (result.modifiedCount !== 1) throw new Error("Auction state changed while completing the category phase.");
+    await appendHistory(collections, auction, "ROUND_COMPLETED", session, admin, {
+      before: { currentPlayerId: completedPlayerId, round: auction.currentRound ?? 1, categoryPhase: "premium" },
+      after: { roundStatus: "complete", categoryPhase: "general", reason: "No General-category players remain." },
+    });
+    return;
+  }
+
+  const playerUpdate = await collections.tournamentPlayers.updateOne(
+    {
+      tournamentId: auction.tournamentId,
+      gender: auction.gender,
+      playerId: firstPlayer.playerId,
+      status: "available",
+    },
+    { $set: { status: "on_auction", auctionId: auction.id, updatedAt: new Date() } },
+    { session },
+  );
+  if (playerUpdate.modifiedCount !== 1) throw new Error("The first General player changed before the category phase ended.");
+
+  const result = await collections.auctions.updateOne(
+    { id: auction.id, status: "live", currentPlayerId: completedPlayerId },
+    {
+      $set: {
+        categoryPhase: "general",
+        roundPlayerIds,
+        currentPlayerId: firstPlayer.playerId,
+        currentBid: firstPlayer.basePrice,
+        roundStatus: "in_progress",
+        awaitingAdvance: false,
+        updatedAt: new Date(),
+      },
+      $unset: { highestTeamId: "" },
+    },
+    { session },
+  );
+  if (result.modifiedCount !== 1) throw new Error("Auction state changed while starting the General category phase.");
+  await appendHistory(collections, auction, "CATEGORY_PHASE_STARTED", session, admin, {
+    before: { currentPlayerId: completedPlayerId, round: auction.currentRound ?? 1, categoryPhase: "premium" },
+    after: { currentPlayerId: firstPlayer.playerId, round: auction.currentRound ?? 1, categoryPhase: "general", playerCount: roundPlayerIds.length },
   });
 }
 

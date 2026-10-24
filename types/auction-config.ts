@@ -26,6 +26,7 @@ export interface AuctionConfig {
   maximumSquadSize: number;
   bidIncrement: number;
   categoryRules?: TournamentCategoryRules;
+  categoryPhase?: "premium" | "general";
   status: "draft" | "ready" | "live" | "paused" | "completed";
   currentRound?: number;
   roundPlayerIds?: string[];

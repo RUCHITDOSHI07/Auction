@@ -1,6 +1,7 @@
 import type { Db, Filter } from "mongodb";
 import { getMongoDb } from "@/lib/mongodb";
 import { calculateTeamAuctionBudget } from "@/lib/auction/calculations";
+import { isPremiumPlayerCategory } from "@/lib/auction/category-rules";
 import { auctionResultDeliveryGraceMs } from "@/lib/auction/results";
 import { getEffectiveAuctionPurchases } from "@/lib/auction/transactions";
 import { createInFlightCoalescer, createPublicAuctionEtag, matchesIfNoneMatch, publicAuctionReadKey } from "@/lib/auction/public-cache";
@@ -347,6 +348,12 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
       squadSize: auction.maximumSquadSize,
       playersNeeded: budget.playersNeeded,
       maximumAffordableBid: budget.maximumAffordableBid,
+      premiumPlayersCount: teamPurchases.filter((purchase) =>
+        isPremiumPlayerCategory(purchase.category ?? purchasedPlayerById.get(purchase.playerId)?.category),
+      ).length,
+      ...(auction.categoryRules?.enabled
+        ? { premiumPlayersLimit: auction.categoryRules.maxPremiumPlayersPerTeam }
+        : {}),
       players: [...teamPurchases]
         .sort((left, right) => (left.createdAt?.getTime() ?? 0) - (right.createdAt?.getTime() ?? 0))
         .map((purchase) => {
@@ -386,6 +393,7 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
       bidIncrement: auction.bidIncrement,
       currentPlayerId: auction.currentPlayerId ?? null,
       highestTeamId: auction.highestTeamId ?? null,
+      categoryPhase: auction.categoryPhase ?? null,
       awaitingAdvance: Boolean(auction.awaitingAdvance),
       updatedAt: auction.updatedAt,
       playerCount: poolIds.length,
@@ -417,6 +425,8 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
       squadSize: team.squadSize,
       playersNeeded: team.playersNeeded,
       maximumAffordableBid: team.maximumAffordableBid,
+      premiumPlayersCount: team.premiumPlayersCount,
+      ...(team.premiumPlayersLimit === undefined ? {} : { premiumPlayersLimit: team.premiumPlayersLimit }),
       status: team.status,
       players: team.players,
       emptySpots: team.emptySpots,
@@ -439,6 +449,7 @@ export async function getPublicAuction(auctionId: string, ifNoneMatch?: string) 
       minimumSquadSize: 1,
       maximumSquadSize: 1,
       bidIncrement: 1,
+      categoryRules: 1,
       status: 1,
       currentRound: 1,
       roundPlayerIds: 1,
@@ -447,6 +458,7 @@ export async function getPublicAuction(auctionId: string, ifNoneMatch?: string) 
       currentPlayerId: 1,
       currentBid: 1,
       highestTeamId: 1,
+      categoryPhase: 1,
       awaitingAdvance: 1,
       lastActionEventId: 1,
       lastSaleEventId: 1,
