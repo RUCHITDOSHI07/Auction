@@ -59,6 +59,7 @@ function AdminAuctionContent() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bidAmount, setBidAmount] = useState("");
+  const [bidStepInput, setBidStepInput] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingBidCount, setPendingBidCount] = useState(0);
   const pendingBidCountRef = useRef(0);
@@ -127,6 +128,7 @@ function AdminAuctionContent() {
         startTransition(() => {
           setRoom(loadedRoom);
           setBidAmount("");
+          setBidStepInput(String(loadedRoom.auction?.bidIncrement ?? ""));
           setLoading(false);
           setError(null);
         });
@@ -343,6 +345,41 @@ function AdminAuctionContent() {
       });
   }
 
+  async function saveBidIncrement() {
+    if (!room?.auction || saving) return;
+    const bidIncrement = Number(bidStepInput);
+    if (!Number.isFinite(bidIncrement) || bidIncrement <= 0) {
+      setError("Bid step must be a positive number.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await bidSaveQueue.current;
+      if (bidSaveFailedRef.current) {
+        bidSaveFailedRef.current = false;
+        throw new Error("A bid failed to save. The latest saved auction state was restored; confirm the bid before changing the step.");
+      }
+      const response = await fetch(`/api/auctions/${encodeURIComponent(room.auction.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "bid-increment", bidIncrement }),
+      });
+      const result = await response.json() as { room?: AuctionRoom; error?: string };
+      if (!response.ok || !result.room?.auction) throw new Error(result.error ?? "Unable to update bid step.");
+      setRoom(result.room);
+      setBidStepInput(String(result.room.auction.bidIncrement));
+      setBidAmount("");
+      setNotice(`Minimum bid step updated to ${formatMoney(result.room.auction.bidIncrement)}.`);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update bid step.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function undoSale() {
     if (!room?.auction?.lastSaleEventId) return;
     resultActionLock.current = true;
@@ -502,6 +539,27 @@ function AdminAuctionContent() {
             {auction.status === "live" && currentPlayer && !auction.awaitingAdvance && (
               <div className="auction-bid-controls">
                 <div className="team-bid-heading"><div><span className="eyebrow">BID STEP · {formatMoney(auction.bidIncrement)}</span><h2>Choose a team</h2></div><label className="custom-bid-field">Custom amount<input aria-label="Optional custom bid amount" type="number" min={minimumBid} step="1" placeholder={formatMoney(minimumBid)} value={bidAmount} onChange={(event) => setBidAmount(event.target.value)} disabled={saving} /></label></div>
+                <div className="bid-step-update">
+                  <label>
+                    Change required bid step
+                    <input
+                      aria-label="New required bid step"
+                      type="number"
+                      min="0.01"
+                      step="any"
+                      value={bidStepInput}
+                      onChange={(event) => setBidStepInput(event.target.value)}
+                      disabled={saving}
+                    />
+                  </label>
+                  <button
+                    className="button button-outline"
+                    type="button"
+                    disabled={saving || !bidStepInput || Number(bidStepInput) === auction.bidIncrement}
+                    onClick={() => void saveBidIncrement()}
+                  >{saving ? "Saving..." : "Update bid step"}</button>
+                  <small>Applies to the next bid; the current bid stays unchanged.</small>
+                </div>
                 <p className="bid-turn-note">{highestTeam ? `${highestTeam.name} is leading; another team must raise the bid before they can bid again.` : "Choose any eligible team to open the bidding."}</p>
                 <div className="bid-presets" aria-label="Quick bid increments">
                   <span>Quick amount</span>

@@ -473,6 +473,7 @@ Show:
 Controls:
 
 - Bid increment buttons
+- Admin may change the required bid increment while the auction is live; the change is persisted, audited, and applies to the next bid without changing the current bid.
 - Custom bid input
 - Highest team selector
 - SOLD
@@ -491,7 +492,7 @@ The admin remains the source of bidding truth. This is not an automated multi-us
 At minimum:
 
 - Current bid cannot be below base price.
-- A new bid should normally be >= current bid + configured increment when using increment controls.
+- A new bid should normally be >= current bid + the currently configured increment when using increment controls.
 - Custom bid must be validated according to configured auction rules.
 - Highest team is required before SOLD.
 - SOLD price must equal the saved current bid.

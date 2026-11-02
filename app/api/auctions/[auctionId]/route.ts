@@ -7,6 +7,7 @@ import {
   startNextAuctionRound,
   submitAuctionBid,
   transitionAuction,
+  updateAuctionBidIncrement,
   type AuctionLifecycleAction,
 } from "@/lib/services/auctions";
 
@@ -16,7 +17,10 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     const admin = await requireAdmin();
     const { auctionId } = await context.params;
-    const body = await request.json() as { action?: unknown; teamId?: unknown; amount?: unknown; requestId?: unknown; expectedResultEventId?: unknown };
+    const body = await request.json() as { action?: unknown; teamId?: unknown; amount?: unknown; bidIncrement?: unknown; requestId?: unknown; expectedResultEventId?: unknown };
+    if (body.action === "bid-increment") {
+      return NextResponse.json({ room: await updateAuctionBidIncrement(auctionId, body.bidIncrement, admin) });
+    }
     if (body.action === "bid" || body.action === "bid-next") {
       await submitAuctionBid(auctionId, body.teamId, body.action === "bid-next" ? undefined : body.amount, admin, body.requestId);
       return NextResponse.json({ success: true });

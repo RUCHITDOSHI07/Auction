@@ -1438,6 +1438,49 @@ export async function submitAuctionBid(
 
 }
 
+export async function updateAuctionBidIncrement(auctionId: string, value: unknown, admin: AdminUser) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error("Bid increment must be a positive number.");
+  }
+
+  const collections = await getCollections();
+  await ensureHistoryIndexes(collections.history);
+  const session = collections.database.client.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const auction = await collections.auctions.findOne({ id: auctionId }, { session });
+      if (!auction) throw new Error("Auction not found.");
+      if (auction.status !== "live") throw new Error("The bid increment can only be changed while the auction is live.");
+      if (auction.bidIncrement === value) return;
+
+      const result = await collections.auctions.updateOne(
+        {
+          id: auctionId,
+          status: "live",
+          bidIncrement: auction.bidIncrement,
+          currentPlayerId: auction.currentPlayerId,
+          currentBid: auction.currentBid,
+          ...(auction.highestTeamId ? { highestTeamId: auction.highestTeamId } : { highestTeamId: { $exists: false } }),
+        },
+        { $set: { bidIncrement: value, updatedAt: new Date() } },
+        { session },
+      );
+      if (result.modifiedCount !== 1) throw new Error("Auction changed while updating the bid increment. Reload and try again.");
+
+      await appendHistory(collections, auction, "BID_INCREMENT_UPDATED", session, admin, {
+        before: { bidIncrement: auction.bidIncrement },
+        after: { bidIncrement: value },
+      });
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  const auction = await collections.auctions.findOne({ id: auctionId });
+  if (!auction) throw new Error("Auction not found after updating the bid increment.");
+  return getAuctionRoom(auction.tournamentId, auction.gender);
+}
+
 export async function transitionAuction(auctionId: string, action: AuctionLifecycleAction, admin: AdminUser) {
   const collections = await getCollections();
   await ensureHistoryIndexes(collections.history);
