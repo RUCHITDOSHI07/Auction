@@ -23,8 +23,10 @@ The public display changes only from successfully persisted auction state.
 - Public viewers are strictly read-only.
 - Never depend on frontend-only security.
 - **MongoDB Atlas is the source of truth for application data.**
-- **Google Drive is the external file/photo store.**
-- Player photos/files must not be stored as binary data inside MongoDB.
+- **Cloudinary is the external image store and delivery CDN.**
+- Cloudinary may be used as an import source when an Excel photo cell contains a publicly accessible “Anyone with the link – Viewer” URL; it is not the live image host.
+- Player and team image binaries must not be stored in MongoDB or committed to the Git repository.
+- MongoDB stores the Cloudinary delivery URL and public ID; Cloudinary serves optimized images through its CDN.
 - Auction state must persist so the admin can close the browser and continue later.
 - Men's and women's competitions are completely independent.
 - Never mix players, teams, purse, transactions, rounds, or state between men's and women's competitions.
@@ -49,7 +51,8 @@ Use:
 - MongoDB Node.js driver
 - bcryptjs for admin password hashing
 - HTTP-only MongoDB-backed admin sessions
-- Google Drive for player/team photos and other externally stored files
+- Cloudinary for player/team image storage, transformations, and CDN delivery
+- Google Drive links as an optional source for bulk player-photo imports
 - Vercel for hosting
 
 The current repository already contains a MongoDB connection, admin authentication/session implementation, and player service. Reuse these where appropriate.
@@ -70,7 +73,8 @@ Admin can:
 - Edit tournament setup
 - Add/edit/delete teams
 - Add/edit/delete players
-- Manage player photos/files
+- Upload/replace player photos through the player import workflow
+- Upload/replace team logos through team management
 - Configure men's and women's auctions
 - Arrange player auction order
 - Preview and mark auctions ready
@@ -268,8 +272,10 @@ Typical fields:
 - bowling
 - instagramId
 - playedCricket
-- photoFileId
-- photoUrl or derived public/display URL when appropriate
+- photoUrl (Cloudinary delivery URL)
+- cloudinaryPublicId (stable Cloudinary asset identifier)
+
+The player ID is the permanent identity. Use it to derive a stable Cloudinary public ID only after confirming the import flow preserves existing player IDs.
 - category
 - basePrice when used by the current tournament workflow
 - createdAt
@@ -284,6 +290,8 @@ Tournament-specific information belongs in tournament/auction/history records.
 # 10. Player Excel Import
 
 The normal player master Excel import may contain fields such as:
+
+For `Upload Your Recent Photo`, accept either a Cloudinary URL or a publicly accessible Google Drive share URL. When a Drive URL is supplied, the server-side import workflow should download the image and upload it to Cloudinary before saving the resulting Cloudinary URL/public ID. Do not use the Drive URL as the live auction image URL.
 
 - Full Name
 - Gender
@@ -317,29 +325,52 @@ The exact player deduplication/matching strategy must be designed before changin
 
 ---
 
-# 11. Google Drive File Storage
+# 11. Image Storage and Delivery
 
-Google Drive is the external store for player photos and other files that should not live in MongoDB.
+Cloudinary is the canonical image store and delivery layer for player photos and team logos. It provides image transformations and CDN delivery; MongoDB stores references only, never image binaries.
 
-Preferred flow:
+## Player photo import flow
 
 ```
-Player Excel
+Excel row
    ↓
-Photo/file reference
+Photo URL (Cloudinary URL or public Google Drive share link)
    ↓
-Google Drive
+Admin-protected server-side import
    ↓
-photoFileId / file reference
+If Drive link: download and validate image
    ↓
-MongoDB player record
+Upload/replace asset in Cloudinary
+   ↓
+Save photoUrl + cloudinaryPublicId on the player record
+   ↓
+Live auction loads image from Cloudinary CDN
 ```
 
-MongoDB stores metadata/reference, not image binary content.
+- Google Drive is an optional source for importing images, not the production delivery host.
+- Drive links must be publicly accessible to anyone with the link. Handle supported share-link formats server-side; do not assume every share URL is a direct download URL.
+- Validate content type, file size, redirects, and request timeouts before upload.
+- An image-transfer failure should be reported for that row and must not silently discard the player's other valid data or abort unrelated rows.
+- Re-imports must not create duplicate Cloudinary assets. Use a stable public ID tied to the permanent player identity and replace the asset when appropriate.
+- Do not key player assets to a newly generated ID until the importer has safely matched the row to the existing permanent player record. Never change existing Player IDs just to support image storage.
 
-Google Drive integration should be introduced as a separate service layer so UI components do not directly contain Drive API logic.
+## Team logo flow
 
-Do not redesign the existing player UI merely to introduce Drive storage.
+- Add an optional image file upload to the existing team create/edit experience.
+- Upload through an admin-authenticated server endpoint; never expose the Cloudinary API secret in browser code.
+- Use a stable public ID based on the deterministic team ID, and store `logoUrl` plus `cloudinaryPublicId` on the team record.
+- Replacing a logo should update the team's reference and clean up the replaced asset only when safe.
+
+## Delivery and performance
+
+- Serve player photos and team logos from Cloudinary, not Google Drive or the application server.
+- Use appropriately sized responsive transformations and modern formats where supported.
+- Reserve image dimensions/aspect ratios to reduce layout shift.
+- Lazy-load images not initially visible; preload the next player image during a live auction where practical.
+- Keep live auction image rendering independent of upload/download operations: all image transfers happen during admin setup/import, never during bidding.
+- Do not promise a fixed load time; measure performance on representative mobile devices and networks.
+
+Keep Cloudinary operations in a server-side storage service so UI components do not contain provider credentials or upload logic.
 
 ---
 
@@ -354,7 +385,8 @@ Team fields may include:
 - auctionId
 - gender
 - name
-- logoFileId / logoUrl
+- logoUrl (Cloudinary delivery URL)
+- cloudinaryPublicId (stable Cloudinary asset identifier)
 - startingPurse
 - squadSize
 - createdAt
@@ -863,11 +895,13 @@ Domain/service layer
    ├── auctions
    ├── results
    ├── playerHistory
-   └── googleDrive
+   └── storage/cloudinary
         ↓
 MongoDB Atlas
         ↓
-Google Drive for files/photos
+Cloudinary CDN for image delivery
+
+Google Drive may be used only as an optional source for importing player photos.
 ```
 
 UI components must not contain database credentials or Google Drive credentials.
@@ -893,6 +927,8 @@ lib/
     auctions.ts
     results.ts
     playerHistory.ts
+  storage/
+    cloudinary.ts
   auction/
     calculations.ts
     validation.ts
@@ -921,13 +957,14 @@ Expected variables may include:
 
 ```
 MONGODB_URI=...
-GOOGLE_DRIVE_CLIENT_ID=...
-GOOGLE_DRIVE_CLIENT_SECRET=...
-GOOGLE_DRIVE_REFRESH_TOKEN=...
-GOOGLE_DRIVE_FOLDER_ID=...
+CLOUDINARY_CLOUD_NAME=...
+CLOUDINARY_API_KEY=...
+CLOUDINARY_API_SECRET=...
 ```
 
-Only add Google Drive variables when the integration is implemented.
+Only add Cloudinary variables when the integration is implemented. Keep all Cloudinary credentials server-side and never expose them through NEXT_PUBLIC_* variables.
+
+Google Drive API credentials are not required when importing public share links that can be downloaded without authentication.
 
 Never expose MongoDB or Google Drive server credentials through NEXT_PUBLIC_* variables.
 
@@ -1002,7 +1039,7 @@ Before production:
 
 - Configure MongoDB connection securely
 - Configure admin authentication/session handling
-- Configure Google Drive credentials securely
+- Configure Cloudinary credentials securely
 - Test public read-only access
 - Test admin writes
 - Test on mobile
