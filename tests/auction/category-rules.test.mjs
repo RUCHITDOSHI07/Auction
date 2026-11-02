@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canAddPremiumPlayer,
+  DEFAULT_GENERAL_ICON_PRICES,
   DEFAULT_TOURNAMENT_CATEGORY_PRICES,
   getIconPlayerPrice,
   getTournamentCategoryBasePrice,
@@ -21,6 +22,11 @@ test("applies configured base prices to normalized categories", () => {
   assert.equal(getTournamentCategoryBasePrice("A", DEFAULT_TOURNAMENT_CATEGORY_PRICES), 50000);
   assert.equal(getTournamentCategoryBasePrice("general", DEFAULT_TOURNAMENT_CATEGORY_PRICES), 1000);
   assert.throws(() => getTournamentCategoryBasePrice("unknown", DEFAULT_TOURNAMENT_CATEGORY_PRICES));
+});
+
+test("uses competition-specific default General icon prices", () => {
+  assert.equal(DEFAULT_GENERAL_ICON_PRICES.male, 15000);
+  assert.equal(DEFAULT_GENERAL_ICON_PRICES.female, 10000);
 });
 
 test("prices icon players from their category and keeps General pricing configurable", () => {

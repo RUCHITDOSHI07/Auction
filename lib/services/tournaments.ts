@@ -2,6 +2,7 @@ import type { Collection, UpdateFilter } from "mongodb";
 import { getMongoDb } from "@/lib/mongodb";
 import { publicRevisionUpdate, publicTournamentAuctionFilter } from "@/lib/auction/public-cache";
 import {
+  DEFAULT_GENERAL_ICON_PRICES,
   MAX_PREMIUM_PLAYERS_PER_TEAM,
   DEFAULT_TOURNAMENT_CATEGORY_PRICES,
 } from "@/lib/auction/category-rules";
@@ -79,7 +80,7 @@ function validateTournamentInput(input: TournamentInput) {
         throw new Error(`${gender === "male" ? "Men's" : "Women's"} ${category} base price must be a positive whole number.`);
       }
     }
-    const generalIconPrice = Number(provided?.generalIconPrice ?? 15000);
+    const generalIconPrice = Number(provided?.generalIconPrice ?? DEFAULT_GENERAL_ICON_PRICES[gender]);
     if (!Number.isSafeInteger(generalIconPrice) || generalIconPrice <= 0) {
       throw new Error(`${gender === "male" ? "Men's" : "Women's"} General icon price must be a positive whole number.`);
     }

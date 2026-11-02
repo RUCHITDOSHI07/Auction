@@ -1,4 +1,5 @@
 import type {
+  CompetitionGender,
   TournamentCategoryRules,
   TournamentCategoryPrices,
   TournamentPlayerCategory,
@@ -9,6 +10,11 @@ export const DEFAULT_TOURNAMENT_CATEGORY_PRICES: TournamentCategoryPrices = {
   B: 40000,
   C: 30000,
   General: 1000,
+};
+
+export const DEFAULT_GENERAL_ICON_PRICES: Record<CompetitionGender, number> = {
+  male: 15000,
+  female: 10000,
 };
 
 export const MAX_PREMIUM_PLAYERS_PER_TEAM = 2 as const;

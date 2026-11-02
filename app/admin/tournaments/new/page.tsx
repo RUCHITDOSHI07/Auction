@@ -6,6 +6,7 @@ import { useState } from "react";
 import AdminShell from "@/components/admin/AdminShell";
 import { PageHeader } from "@/components/ui/Primitives";
 import {
+  DEFAULT_GENERAL_ICON_PRICES,
   DEFAULT_TOURNAMENT_CATEGORY_PRICES,
   MAX_PREMIUM_PLAYERS_PER_TEAM,
 } from "@/lib/auction/category-rules";
@@ -19,13 +20,13 @@ function defaultCategoryRules(): Record<CompetitionGender, TournamentCategoryRul
     male: {
       enabled: false,
       basePrices: { ...DEFAULT_TOURNAMENT_CATEGORY_PRICES },
-      generalIconPrice: 15000,
+      generalIconPrice: DEFAULT_GENERAL_ICON_PRICES.male,
       maxPremiumPlayersPerTeam: MAX_PREMIUM_PLAYERS_PER_TEAM,
     },
     female: {
       enabled: false,
       basePrices: { ...DEFAULT_TOURNAMENT_CATEGORY_PRICES },
-      generalIconPrice: 15000,
+      generalIconPrice: DEFAULT_GENERAL_ICON_PRICES.female,
       maxPremiumPlayersPerTeam: MAX_PREMIUM_PLAYERS_PER_TEAM,
     },
   };

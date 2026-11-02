@@ -10,6 +10,7 @@ import type { MongoPlayer } from "@/lib/services/players";
 import type { Team } from "@/types/team";
 import {
   getIconPlayerPrice,
+  DEFAULT_GENERAL_ICON_PRICES,
   DEFAULT_TOURNAMENT_CATEGORY_PRICES,
   MAX_PREMIUM_PLAYERS_PER_TEAM,
   normalizeTournamentPlayerCategory,
@@ -69,12 +70,23 @@ function emptyAuctionForm(): AuctionForm {
   };
 }
 
-function defaultCategoryRules(): TournamentCategoryRules {
+function defaultCategoryRules(gender: CompetitionGender): TournamentCategoryRules {
   return {
     enabled: false,
     basePrices: { ...DEFAULT_TOURNAMENT_CATEGORY_PRICES },
-    generalIconPrice: 15000,
+    generalIconPrice: DEFAULT_GENERAL_ICON_PRICES[gender],
     maxPremiumPlayersPerTeam: MAX_PREMIUM_PLAYERS_PER_TEAM,
+  };
+}
+
+function categoryRulesWithDefaults(
+  gender: CompetitionGender,
+  rules?: TournamentCategoryRules,
+): TournamentCategoryRules {
+  return {
+    ...defaultCategoryRules(gender),
+    ...rules,
+    basePrices: { ...DEFAULT_TOURNAMENT_CATEGORY_PRICES, ...rules?.basePrices },
   };
 }
 
@@ -99,8 +111,8 @@ export default function TournamentSetupWizard() {
     female: emptyAuctionForm(),
   });
   const [categoryRules, setCategoryRules] = useState<Record<CompetitionGender, TournamentCategoryRules>>({
-    male: defaultCategoryRules(),
-    female: defaultCategoryRules(),
+    male: defaultCategoryRules("male"),
+    female: defaultCategoryRules("female"),
   });
   const [categoryRulesSaved, setCategoryRulesSaved] = useState(true);
   const [teamForm, setTeamForm] = useState<TeamForm>(emptyTeamForm);
@@ -208,8 +220,8 @@ export default function TournamentSetupWizard() {
     setAuctionForms(data.auctionForms);
     setIconAssignments(data.iconAssignments);
     setCategoryRules({
-      male: data.tournament.competitions.male.categoryRules ?? defaultCategoryRules(),
-      female: data.tournament.competitions.female.categoryRules ?? defaultCategoryRules(),
+      male: categoryRulesWithDefaults("male", data.tournament.competitions.male.categoryRules),
+      female: categoryRulesWithDefaults("female", data.tournament.competitions.female.categoryRules),
     });
     setCategoryRulesSaved(true);
     const activeGenders = genders.filter((gender) => data.tournament.competitions[gender].enabled);
@@ -329,8 +341,8 @@ export default function TournamentSetupWizard() {
       }
       setTournament(result.tournament);
       setCategoryRules({
-        male: result.tournament.competitions.male.categoryRules ?? defaultCategoryRules(),
-        female: result.tournament.competitions.female.categoryRules ?? defaultCategoryRules(),
+        male: categoryRulesWithDefaults("male", result.tournament.competitions.male.categoryRules),
+        female: categoryRulesWithDefaults("female", result.tournament.competitions.female.categoryRules),
       });
       setCategoryRulesSaved(true);
       return true;
