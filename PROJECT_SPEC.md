@@ -656,6 +656,8 @@ Undo may reverse a recent canonical operation such as:
 - derived purse/squad state
 - auction state
 
+After a player is marked SOLD or UNSOLD, keep that player selected until the admin explicitly clicks NEXT PLAYER. Before advancing, show the recorded result and let the admin correct or undo the current sale, or undo the current UNSOLD result to return the player to bidding.
+
 Prefer append-only history/event records where practical instead of destructive history deletion.
 
 Define clearly which actions are undoable and prevent unsafe undo of unrelated historical transactions.

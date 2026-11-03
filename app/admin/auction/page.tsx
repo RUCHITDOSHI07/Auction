@@ -68,7 +68,6 @@ function AdminAuctionContent() {
   const [hasLocalBid, setHasLocalBid] = useState(false);
   const [bidSaveBlocked, setBidSaveBlocked] = useState(false);
   const resultActionLock = useRef(false);
-  const [autoAdvanceAttemptedEventId, setAutoAdvanceAttemptedEventId] = useState<string | null>(null);
   const [correctionPreview, setCorrectionPreview] = useState<CorrectionPreview | null>(null);
   const [correctionTeamId, setCorrectionTeamId] = useState("");
   const [correctionAmount, setCorrectionAmount] = useState("");
@@ -202,7 +201,6 @@ function AdminAuctionContent() {
       setRoom(result.room);
       setHasLocalBid(false);
       setBidAmount("");
-      if (action === "resume") setAutoAdvanceAttemptedEventId(null);
       setNotice(action === "sold" ? "Sale recorded. Review the result before moving on." : action === "unsold" ? "Player marked unsold. Review before moving on." : action === "next-player" ? "Advanced to the next eligible player." : null);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Unable to update auction.");
@@ -210,59 +208,6 @@ function AdminAuctionContent() {
       setSaving(false);
     }
   }
-
-  const pendingResult = room?.auction?.awaitingAdvance ? room.auction.lastResult : undefined;
-  const pendingResultEventId = pendingResult?.eventId;
-  const pendingResultDisplayUntil = pendingResult
-    ? new Date(pendingResult.displayUntil).getTime()
-    : null;
-
-  useEffect(() => {
-    const auction = room?.auction;
-    const result = auction?.lastResult;
-    if (!auction || auction.status !== "live" || !auction.awaitingAdvance || !result || saving || resultActionLock.current) return undefined;
-    if (autoAdvanceAttemptedEventId === result.eventId) return undefined;
-
-    const delay = Math.max(0, new Date(result.displayUntil).getTime() - Date.now());
-    const timer = window.setTimeout(() => {
-      if (autoAdvanceAttemptedEventId === result.eventId) return;
-      if (resultActionLock.current) return;
-      setAutoAdvanceAttemptedEventId(result.eventId);
-      void (async () => {
-        setSaving(true);
-        setError(null);
-        try {
-          const response = await fetch(`/api/auctions/${encodeURIComponent(auction.id)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "next-player", expectedResultEventId: result.eventId }),
-          });
-          const responseBody = await response.json() as { room?: AuctionRoom; error?: string };
-          if (!response.ok || !responseBody.room) throw new Error(responseBody.error ?? "Unable to advance the auction.");
-          setRoom(responseBody.room);
-          setHasLocalBid(false);
-          setBidAmount("");
-        } catch (advanceError) {
-          try {
-            const refresh = await fetch(
-              `/api/auctions?tournamentId=${encodeURIComponent(tournamentId)}&gender=${gender}`,
-              { cache: "no-store" },
-            );
-            const latest = await refresh.json() as { room?: AuctionRoom };
-            if (!refresh.ok || !latest.room) throw advanceError;
-            setRoom(latest.room);
-            setHasLocalBid(false);
-          } catch {
-            setError(advanceError instanceof Error ? advanceError.message : "Unable to advance the auction.");
-          }
-        } finally {
-          setSaving(false);
-        }
-      })();
-    }, delay);
-
-    return () => window.clearTimeout(timer);
-  }, [autoAdvanceAttemptedEventId, correctionLoading, correctionPreview, correctionSaving, gender, pendingResultDisplayUntil, pendingResultEventId, room, saving, tournamentId]);
 
   function submitBid(teamId: string, customAmount?: number) {
     if (!room?.auction || saving) return;
@@ -403,6 +348,29 @@ function AdminAuctionContent() {
       setError(undoError instanceof Error ? undoError.message : "Unable to undo sale.");
     } finally {
       resultActionLock.current = false;
+      setSaving(false);
+    }
+  }
+
+  async function undoUnsold() {
+    if (!room?.auction?.lastResult || room.auction.lastResult.outcome !== "unsold") return;
+    if (!window.confirm("Undo this UNSOLD result? The player will return to bidding in the current position.")) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/auctions/${encodeURIComponent(room.auction.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "undo-unsold", expectedResultEventId: room.auction.lastResult.eventId }),
+      });
+      const result = await response.json() as { room?: AuctionRoom; error?: string };
+      if (!response.ok || !result.room) throw new Error(result.error ?? "Unable to undo UNSOLD.");
+      setRoom(result.room);
+      setNotice("UNSOLD reversed. The player is back in the current auction position.");
+    } catch (undoError) {
+      setError(undoError instanceof Error ? undoError.message : "Unable to undo UNSOLD.");
+    } finally {
       setSaving(false);
     }
   }
@@ -598,8 +566,9 @@ function AdminAuctionContent() {
                 </div>
               </div>
             )}
-            {auction.awaitingAdvance && <div className="auction-outcome-review" role="status"><StatusBadge tone={currentPlayer?.auctionStatus === "sold" ? "success" : "warning"}>{currentPlayer?.auctionStatus === "sold" ? "SOLD" : "UNSOLD"}</StatusBadge><p>{currentPlayer?.name} · {currentPlayer?.auctionStatus === "sold" ? `${formatMoney(auction.currentBid ?? 0)} to ${highestTeam?.name ?? "team"}` : "No sale recorded"}</p></div>}
+            {auction.awaitingAdvance && <div className="auction-outcome-review" role="status"><StatusBadge tone={currentPlayer?.auctionStatus === "sold" ? "success" : "warning"}>{currentPlayer?.auctionStatus === "sold" ? "SOLD" : "UNSOLD"}</StatusBadge><p>{currentPlayer?.name} · {currentPlayer?.auctionStatus === "sold" ? `${formatMoney(auction.currentBid ?? 0)} to ${highestTeam?.name ?? "team"}` : "No sale recorded"}</p><small>Review or edit this result before moving to the next player.</small></div>}
             {auction.awaitingAdvance && currentPlayer?.auctionStatus === "sold" && auction.lastSaleEventId && <div className="sale-recovery-actions"><button className="button button-outline" type="button" disabled={saving} onClick={() => void undoSale()}>Undo sale</button><button className="button button-outline" type="button" disabled={saving || correctionLoading} onClick={() => void openSaleCorrection(auction.lastSaleEventId!, auction.id)}>{correctionLoading ? "Loading preview..." : "Correct sale"}</button></div>}
+            {auction.awaitingAdvance && currentPlayer?.auctionStatus === "unsold" && <div className="sale-recovery-actions"><button className="button button-outline" type="button" disabled={saving} onClick={() => void undoUnsold()}>Undo UNSOLD · return to bidding</button></div>}
           </section>
 
           <details className="panel team-board team-board-details" open={auction.status !== "live"}>
@@ -626,7 +595,7 @@ function AdminAuctionContent() {
             <button className="button button-sold" type="button" disabled={saving || !auction.highestTeamId} onClick={() => { if (window.confirm(`Confirm ${currentPlayer.name} SOLD to ${highestTeam?.name ?? "the highest-bid team"} for ${formatMoney(auction.currentBid ?? 0)}?`)) void runAction("sold"); }}>SOLD</button>
             <button className="button button-unsold" type="button" disabled={saving} onClick={() => { if (window.confirm(`Mark ${currentPlayer.name} UNSOLD?`)) void runAction("unsold"); }}>UNSOLD</button>
           </>}
-          {auction.status === "live" && auction.awaitingAdvance && <button className="button button-dark" type="button" disabled={saving || Boolean(auction.lastResult && autoAdvanceAttemptedEventId !== auction.lastResult.eventId)} onClick={() => void runAction("next-player", auction.lastResult?.eventId)}>Next player →</button>}
+          {auction.status === "live" && auction.awaitingAdvance && <button className="button button-dark" type="button" disabled={saving} onClick={() => void runAction("next-player", auction.lastResult?.eventId)}>Next player →</button>}
           {auction.status === "live" && auction.roundStatus === "complete" && room.roundUnsoldCount > 0 && <button className="button button-dark" type="button" disabled={saving} onClick={() => void runAction("next-round")}>Start round {(auction.currentRound ?? 1) + 1} · {room.roundUnsoldCount} unsold</button>}
           {auction.status === "live" && auction.roundStatus === "complete" && room.roundUnsoldCount === 0 && <button className="button button-sold" type="button" disabled={saving} onClick={() => void runAction("complete")}>Complete auction</button>}
           {auction.status === "completed" && <StatusBadge tone="success">AUCTION COMPLETED</StatusBadge>}

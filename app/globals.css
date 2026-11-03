@@ -194,8 +194,9 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
 .team-bid-metrics,.team-bid-limit { color:var(--muted); font-size:.65rem; }
 .team-bid-next { margin-top:.2rem; color:var(--lime); font-size:.86rem; font-weight:800; }
 .auction-notice { margin-bottom:1rem; border-left:3px solid var(--lime); background:rgba(167,216,122,.1); padding:.7rem .9rem; color:#d7efc2; font-size:.78rem; }
-.auction-outcome-review { display:flex; align-items:center; gap:.7rem; margin-top:1rem; border-top:1px solid var(--line); padding-top:1rem; }
+.auction-outcome-review { display:flex; align-items:center; flex-wrap:wrap; gap:.7rem; margin-top:1rem; border-top:1px solid var(--line); padding-top:1rem; }
 .auction-outcome-review p { color:var(--cream); font-size:.78rem; }
+.auction-outcome-review small { flex-basis:100%; color:var(--muted); font-size:.68rem; }
 .team-board-row { border-color:var(--line); }
 .team-board-row small,.bid-panel-top,.round-label { color:var(--muted); }
 .player-stage-info { color:var(--cream); }

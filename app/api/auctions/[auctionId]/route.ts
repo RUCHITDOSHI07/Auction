@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AdminApiError, requireAdmin } from "@/lib/auth/admin-api";
 import {
   markCurrentAuctionPlayerUnsold,
+  undoCurrentAuctionPlayerUnsold,
   advanceAuctionToNextPlayer,
   sellCurrentAuctionPlayer,
   startNextAuctionRound,
@@ -30,6 +31,9 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
     if (body.action === "unsold") {
       return NextResponse.json({ room: await markCurrentAuctionPlayerUnsold(auctionId, admin) });
+    }
+    if (body.action === "undo-unsold") {
+      return NextResponse.json({ room: await undoCurrentAuctionPlayerUnsold(auctionId, body.expectedResultEventId, admin) });
     }
     if (body.action === "next-player") {
       return NextResponse.json({ room: await advanceAuctionToNextPlayer(

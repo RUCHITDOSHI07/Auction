@@ -562,6 +562,103 @@ export async function markCurrentAuctionPlayerUnsold(auctionId: string, admin: A
   return getAuctionRoom(auction.tournamentId, auction.gender);
 }
 
+export async function undoCurrentAuctionPlayerUnsold(
+  auctionId: string,
+  expectedResultEventId: unknown,
+  admin: AdminUser,
+) {
+  if (typeof expectedResultEventId !== "string" || !expectedResultEventId) {
+    throw new Error("Result event ID is required to undo UNSOLD.");
+  }
+  const collections = await getCollections();
+  await ensureHistoryIndexes(collections.history);
+  const session = collections.database.client.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const auction = await collections.auctions.findOne({ id: auctionId }, { session });
+      if (
+        !auction ||
+        auction.status !== "live" ||
+        !auction.awaitingAdvance ||
+        auction.lastResult?.outcome !== "unsold" ||
+        auction.lastResult.eventId !== expectedResultEventId ||
+        auction.lastActionEventId !== expectedResultEventId
+      ) {
+        throw new Error("Undo is only available for the current UNSOLD result before any later auction action.");
+      }
+
+      const unsoldEvent = await collections.history.findOne({
+        eventId: expectedResultEventId,
+        auctionId,
+        action: "PLAYER_UNSOLD",
+      }, { session });
+      const playerId = auction.currentPlayerId;
+      if (!unsoldEvent || !playerId || unsoldEvent.playerId !== playerId) {
+        throw new Error("The current UNSOLD event is unavailable; automatic undo is unsafe.");
+      }
+
+      const entry = await collections.tournamentPlayers.findOne({
+        tournamentId: auction.tournamentId,
+        gender: auction.gender,
+        playerId,
+        status: "unsold",
+        auctionId,
+        lastAuctionRound: auction.currentRound ?? 1,
+      }, { session });
+      if (!entry) throw new Error("The unsold player record no longer matches this result; automatic undo is unsafe.");
+
+      const playerUpdate = await collections.tournamentPlayers.updateOne(
+        {
+          tournamentId: auction.tournamentId,
+          gender: auction.gender,
+          playerId,
+          status: "unsold",
+          auctionId,
+          lastAuctionRound: auction.currentRound ?? 1,
+        },
+        {
+          $set: { status: "on_auction", updatedAt: new Date() },
+          $unset: { lastAuctionRound: "" },
+        },
+        { session },
+      );
+      if (playerUpdate.modifiedCount !== 1) throw new Error("Player state changed during UNSOLD undo; reload and retry.");
+
+      const reversalEvent = await appendHistory(collections, auction, "PLAYER_UNSOLD_REVERSED", session, admin, {
+        playerId,
+        reversesEventId: expectedResultEventId,
+        before: { status: "unsold", round: auction.currentRound ?? 1 },
+        after: { status: "on_auction" },
+      });
+      const auctionUpdate = await collections.auctions.updateOne(
+        {
+          id: auctionId,
+          status: "live",
+          currentPlayerId: playerId,
+          awaitingAdvance: true,
+          lastActionEventId: reversalEvent.eventId,
+        },
+        {
+          $set: {
+            currentBid: entry.basePrice,
+            awaitingAdvance: false,
+            updatedAt: reversalEvent.createdAt,
+          },
+          $unset: { highestTeamId: "", lastSaleEventId: "", lastResult: "" },
+        },
+        { session },
+      );
+      if (auctionUpdate.modifiedCount !== 1) throw new Error("Auction changed during UNSOLD undo; reload and retry.");
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  const auction = await collections.auctions.findOne({ id: auctionId });
+  if (!auction) throw new Error("Auction not found after undoing UNSOLD.");
+  return getAuctionRoom(auction.tournamentId, auction.gender);
+}
+
 export async function startNextAuctionRound(auctionId: string, admin: AdminUser) {
   const collections = await getCollections();
   await ensureHistoryIndexes(collections.history);
@@ -1766,9 +1863,6 @@ export async function advanceAuctionToNextPlayer(
       }
       if (expectedResultEventId && auction.lastResult?.eventId !== expectedResultEventId) {
         throw new Error("The auction result changed before it could advance.");
-      }
-      if (auction.lastResult && auction.lastResult.displayUntil.getTime() > Date.now()) {
-        throw new Error("The result display must finish before advancing.");
       }
       await advanceAuctionPlayer(collections, auction, auction.currentPlayerId, session, admin);
     });
