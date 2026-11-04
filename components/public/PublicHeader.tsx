@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 export default function PublicHeader({ children }: { children?: ReactNode }) {
   return (
@@ -14,6 +15,7 @@ export default function PublicHeader({ children }: { children?: ReactNode }) {
       </Link>
       <div className="public-meta">
         {children}
+        <ThemeToggle />
       </div>
     </header>
   );

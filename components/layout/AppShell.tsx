@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 const navigation = [
   { href: "/dashboard", label: "Overview", icon: "◫" },
@@ -25,7 +26,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </nav>
         <div className="sidebar-bottom"><Link className="nav-item" href="/settings"><span className="nav-icon">⚙</span>Settings</Link><div className="operator"><span className="avatar avatar-small">AK</span><span><b>Arjun Kapoor</b><small>Administrator</small></span><span className="operator-more">•••</span></div></div>
       </aside>
-      <main className="main-content"><header className="topbar"><div className="crumb">2026 SEASON <span>/</span> CONTROL ROOM</div><div className="top-actions"><Link className="live-link" href="/live">◉ View live display</Link><button className="icon-button" aria-label="Notifications">♧</button><button className="icon-button" aria-label="Help">?</button></div></header>{children}</main>
+      <main className="main-content"><header className="topbar"><div className="crumb">2026 SEASON <span>/</span> CONTROL ROOM</div><div className="top-actions"><Link className="live-link" href="/live">◉ View live display</Link><ThemeToggle /><button className="icon-button" aria-label="Notifications">♧</button><button className="icon-button" aria-label="Help">?</button></div></header>{children}</main>
     </div>
   );
 }

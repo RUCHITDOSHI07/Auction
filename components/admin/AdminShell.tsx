@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 const navigation = [
   { href: "/admin", label: "Overview", icon: "◫" },
@@ -131,6 +132,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           <div className="crumb">PNPL <span>/</span> ADMIN CONTROL</div>
           <div className="top-actions">
             <Link className="live-link" href="/live">◉ View public display</Link>
+            <ThemeToggle />
             <button
               className="button button-outline admin-top-logout"
               type="button"

@@ -9,6 +9,7 @@ import AuctionResultFeedback from "@/components/auction/AuctionResultFeedback";
 import PlayerPortrait from "@/components/auction/PlayerPortrait";
 import { optimizedImageUrl } from "@/lib/storage/image-url";
 import { canAddPremiumPlayer } from "@/lib/auction/category-rules";
+import { areAllAuctionTeamsFull } from "@/lib/auction/completion";
 import type { AuctionConfig } from "@/types/auction-config";
 import type { Team } from "@/types/team";
 import type { Player } from "@/types/firestore";
@@ -436,6 +437,7 @@ function AdminAuctionContent() {
   }
 
   const { auction, currentPlayer, teams: auctionTeams } = room;
+  const allTeamsFull = areAllAuctionTeamsFull(auctionTeams, auction.teamIds.length, auction.maximumSquadSize);
   const playerIndex = auction.currentPlayerId
     ? (auction.roundPlayerIds ?? auction.playerPoolIds)?.indexOf(auction.currentPlayerId) ?? -1
     : -1;
@@ -614,8 +616,18 @@ function AdminAuctionContent() {
             <button className="button button-unsold" type="button" disabled={saving} onClick={() => { if (window.confirm(`Mark ${currentPlayer.name} UNSOLD?`)) void runAction("unsold"); }}>UNSOLD</button>
           </>}
           {auction.status === "live" && auction.awaitingAdvance && <button className="button button-dark" type="button" disabled={saving} onClick={() => void runAction("next-player", auction.lastResult?.eventId)}>Next player →</button>}
-          {auction.status === "live" && auction.roundStatus === "complete" && room.roundUnsoldCount > 0 && <button className="button button-dark" type="button" disabled={saving} onClick={() => void runAction("next-round")}>Start round {(auction.currentRound ?? 1) + 1} · {room.roundUnsoldCount} unsold</button>}
-          {auction.status === "live" && auction.roundStatus === "complete" && room.roundUnsoldCount === 0 && <button className="button button-sold" type="button" disabled={saving} onClick={() => void runAction("complete")}>Complete auction</button>}
+          {auction.status === "live" && auction.roundStatus === "complete" && room.roundUnsoldCount > 0 && !allTeamsFull && <button className="button button-dark" type="button" disabled={saving} onClick={() => void runAction("next-round")}>Start round {(auction.currentRound ?? 1) + 1} · {room.roundUnsoldCount} unsold</button>}
+          {auction.status === "live" && auction.roundStatus === "complete" && (room.roundUnsoldCount === 0 || allTeamsFull) && <button
+            className="button button-sold"
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              const confirmation = room.roundUnsoldCount > 0
+                ? `All teams are full. Complete the auction and leave ${room.roundUnsoldCount} unsold player${room.roundUnsoldCount === 1 ? "" : "s"} unsold?`
+                : "Complete this auction?";
+              if (window.confirm(confirmation)) void runAction("complete");
+            }}
+          >{room.roundUnsoldCount > 0 ? `Complete auction · leave ${room.roundUnsoldCount} unsold` : "Complete auction"}</button>}
           {auction.status === "completed" && <StatusBadge tone="success">AUCTION COMPLETED</StatusBadge>}
         </div>
         {auction.currentRound && <p className="muted-label">Round {auction.currentRound}: {room.roundSoldCount} sold · {room.roundUnsoldCount} unsold · {room.roundTotal} players</p>}

@@ -623,6 +623,8 @@ Unsold players return to the eligible pool according to the auction rules.
 
 Never automatically jump into the next round without explicit admin action.
 
+If every configured team reaches its maximum squad size while players remain unsold, the admin may complete the auction instead of starting another round. Those players remain recorded as unsold.
+
 ---
 
 # 22. Pause / Resume / Persistence

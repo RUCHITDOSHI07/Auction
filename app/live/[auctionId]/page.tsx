@@ -4,6 +4,7 @@ import Link from "next/link";
 import { startTransition, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { StatusBadge } from "@/components/ui/Primitives";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 import AuctionResultFeedback from "@/components/auction/AuctionResultFeedback";
 import PlayerPortrait from "@/components/auction/PlayerPortrait";
 import { optimizedImageUrl } from "@/lib/storage/image-url";
@@ -162,8 +163,8 @@ export default function PublicLivePage() {
     };
   }, [auctionId, retryCount]);
 
-  if (loading && !data) return <main className="public-live"><section className="public-empty-state"><p>Loading persisted auction...</p><div className="public-skeleton" /></section></main>;
-  if (!data) return <main className="public-live"><section className="public-empty-state"><h1>Auction unavailable</h1><p>{error ?? "This share link does not match a configured tournament auction."}</p><button className="button button-outline" type="button" onClick={() => { setLoading(true); setRetryCount((value) => value + 1); }}>Retry</button><Link href="/live" className="button button-dark">All live auctions</Link></section></main>;
+  if (loading && !data) return <main className="public-live"><ThemeToggle /><section className="public-empty-state"><p>Loading persisted auction...</p><div className="public-skeleton" /></section></main>;
+  if (!data) return <main className="public-live"><ThemeToggle /><section className="public-empty-state"><h1>Auction unavailable</h1><p>{error ?? "This share link does not match a configured tournament auction."}</p><button className="button button-outline" type="button" onClick={() => { setLoading(true); setRetryCount((value) => value + 1); }}>Retry</button><Link href="/live" className="button button-dark">All live auctions</Link></section></main>;
 
   const { auction, currentPlayer, highestTeam, teams } = data;
   const genderLabel = auction.gender === "female" ? "WOMEN'S" : "MEN'S";
@@ -173,7 +174,7 @@ export default function PublicLivePage() {
 
   return (
     <main className="public-live public-live-room">
-      <header className="public-header"><Link className="live-brand" href="/live"><span className="brand-mark">PN</span><span>{auction.tournamentName}<br /><b>LIVE DISPLAY</b></span></Link><nav className="public-tournament-nav" aria-label="Tournament information"><Link href={`/players?tournamentId=${encodeURIComponent(auction.tournamentId)}&gender=${auction.gender}`}>Players</Link><Link href={`/results?tournamentId=${encodeURIComponent(auction.tournamentId)}&gender=${auction.gender}`}>Results</Link></nav><div className="public-meta"><StatusBadge tone={statusTone}>{auction.status.toUpperCase()}</StatusBadge><span>{genderLabel} · {auction.season ?? "SEASON"} · ROUND {auction.currentRound ?? "-"}</span></div></header>
+      <header className="public-header"><Link className="live-brand" href="/live"><span className="brand-mark">PN</span><span>{auction.tournamentName}<br /><b>LIVE DISPLAY</b></span></Link><nav className="public-tournament-nav" aria-label="Tournament information"><Link href={`/players?tournamentId=${encodeURIComponent(auction.tournamentId)}&gender=${auction.gender}`}>Players</Link><Link href={`/results?tournamentId=${encodeURIComponent(auction.tournamentId)}&gender=${auction.gender}`}>Results</Link></nav><div className="public-meta"><StatusBadge tone={statusTone}>{auction.status.toUpperCase()}</StatusBadge><span>{genderLabel} · {auction.season ?? "SEASON"} · ROUND {auction.currentRound ?? "-"}</span><ThemeToggle /></div></header>
       {error && <div className="public-refresh-error" role="status">Live refresh delayed: {error}</div>}
       <AuctionResultFeedback variant="public" result={data.result} storageKey={`public-auction-${auction.id}`} />
       {stateMessage && <div className="public-auction-state"><StatusBadge tone={statusTone}>{stateMessage}</StatusBadge></div>}

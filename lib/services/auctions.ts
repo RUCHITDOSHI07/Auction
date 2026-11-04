@@ -7,6 +7,7 @@ import type { CompetitionGender } from "@/types/tournament";
 import type { Team } from "@/types/team";
 import type { MongoPlayer } from "@/lib/services/players";
 import { calculateTeamAuctionBudget } from "@/lib/auction/calculations";
+import { areAllAuctionTeamsFull } from "@/lib/auction/completion";
 import { auctionResultDisplayMs } from "@/lib/auction/results";
 import { getEffectiveAuctionPurchases } from "@/lib/auction/transactions";
 import {
@@ -711,6 +712,10 @@ export async function startNextAuctionRound(auctionId: string, admin: AdminUser)
       const auction = await collections.auctions.findOne({ id: auctionId }, { session });
       if (!auction || auction.status !== "live" || auction.roundStatus !== "complete") {
         throw new Error("The current round must be complete before starting another round.");
+      }
+      const teams = await getTeamViews(collections, auction, session);
+      if (areAllAuctionTeamsFull(teams, auction.teamIds.length, auction.maximumSquadSize)) {
+        throw new Error("All teams have reached the maximum squad size. Complete the auction instead of starting another round.");
       }
       const nextRound = (auction.currentRound ?? 1) + 1;
       const poolIds = auction.playerPoolIds ?? [];
@@ -1655,7 +1660,21 @@ export async function transitionAuction(auctionId: string, action: AuctionLifecy
         if (playerUpdate.modifiedCount !== 1) throw new Error("The current player is no longer eligible for auction.");
       }
       if (action === "complete") {
-        const underfilledTeams = (await getTeamViews(collections, auction, session))
+        const teams = await getTeamViews(collections, auction, session);
+        const roundPlayerIds = auction.roundPlayerIds ?? [];
+        const roundUnsoldCount = auction.currentRound && roundPlayerIds.length
+          ? await collections.tournamentPlayers.countDocuments({
+              tournamentId: auction.tournamentId,
+              gender: auction.gender,
+              playerId: { $in: roundPlayerIds },
+              lastAuctionRound: auction.currentRound,
+              status: "unsold",
+            }, { session })
+          : 0;
+        if (roundUnsoldCount > 0 && !areAllAuctionTeamsFull(teams, auction.teamIds.length, auction.maximumSquadSize)) {
+          throw new Error("Unsold players remain. Complete another round, or fill every team's squad before completing the auction.");
+        }
+        const underfilledTeams = teams
           .filter((team) => team.playersCount < auction.minimumSquadSize);
         if (underfilledTeams.length > 0) {
           throw new Error(`Every team must have at least ${auction.minimumSquadSize} players before completion. Still short: ${underfilledTeams.map((team) => team.name).join(", ")}.`);

@@ -23,6 +23,7 @@ export default function TournamentOverviewPage(){
       <Link className="primary" href={"/admin/tournaments/"+tournament.id+"/auction-config?gender="+c.key}>2. Configure Auction →</Link>
       <Link href={"/admin/players?tournamentId="+tournament.id+"&gender="+c.key}>3. Player Pool →</Link>
       <Link href={"/admin/auction?tournamentId="+tournament.id+"&gender="+c.key}>4. Auction →</Link>
+      <Link href={"/admin/results?tournamentId="+encodeURIComponent(tournament.id)+"&gender="+c.key}>5. Results →</Link>
     </div></article>})}</section>
   </div></AdminShell>;
 }

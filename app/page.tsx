@@ -1,8 +1,10 @@
 import Link from "next/link";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 export default function Home() {
   return (
     <main className="landing">
+      <ThemeToggle />
       <div className="landing-brand">
         <span className="brand-mark">CA</span>
         <span>

@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -31,6 +32,7 @@ export default function AdminLoginPage() {
 
   return (
     <main className="landing">
+      <ThemeToggle />
       <div className="landing-brand">
         <span className="brand-mark">CA</span>
         <span>

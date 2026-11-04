@@ -2,12 +2,14 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { getPublicAuctions } from "@/lib/services/public-auctions";
 import { StatusBadge } from "@/components/ui/Primitives";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 export default async function LiveLandingPage() {
   await connection();
   const auctions = await getPublicAuctions().catch(() => null);
   return (
     <main className="live-landing">
+      <ThemeToggle />
       <div className="live-brand">
         <span className="brand-mark">CA</span>
         <span>
