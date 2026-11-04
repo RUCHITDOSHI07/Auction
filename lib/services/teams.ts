@@ -89,6 +89,7 @@ function normalizeTeamInput(input: TeamInput) {
     ...(iconPlayerId ? { iconPlayerId } : {}),
     ownerName: cleanText(input.ownerName) || undefined,
     logoUrl: cleanText(input.logoUrl) || undefined,
+    cloudinaryPublicId: cleanText(input.cloudinaryPublicId) || undefined,
     totalBudget,
     squadSize,
   };
@@ -179,6 +180,35 @@ export async function getTeamById(teamId: string): Promise<Team | null> {
   return document ? toTeam(document) : null;
 }
 
+export async function updateTeamImageReference(
+  teamId: string,
+  image: { logoUrl: string; cloudinaryPublicId: string } | null,
+) {
+  const collection = await getTeamsCollection();
+  await ensureTeamIndexes(collection);
+  const team = await collection.findOneAndUpdate(
+    { id: teamId },
+    image
+      ? { $set: { ...image, updatedAt: new Date() } }
+      : { $unset: { logoUrl: "", cloudinaryPublicId: "" }, $set: { updatedAt: new Date() } },
+    { returnDocument: "after" },
+  );
+  if (!team) throw new Error("Team not found.");
+  const cleanedTeam = toTeam(team);
+  try {
+    await (await getMongoDb()).collection("auctions").updateMany(
+      publicTeamAuctionFilter(cleanedTeam.tournamentId, cleanedTeam.gender, teamId),
+      publicRevisionUpdate("publicMetadataRevision"),
+    );
+    return { team: cleanedTeam, warning: undefined };
+  } catch (error) {
+    return {
+      team: cleanedTeam,
+      warning: `Logo reference was saved, but public image caches could not be refreshed: ${error instanceof Error ? error.message : "Cache refresh failed."}`,
+    };
+  }
+}
+
 export async function createTeam(input: TeamInput): Promise<Team> {
   const normalized = normalizeTeamInput(input);
   await assertCompetitionEnabled(normalized.tournamentId, normalized.gender);
@@ -253,7 +283,19 @@ export async function updateTeam(
     else unset.iconPlayerId = "";
   }
   if (changes.ownerName !== undefined) update.ownerName = cleanText(changes.ownerName) || undefined;
-  if (changes.logoUrl !== undefined) update.logoUrl = cleanText(changes.logoUrl) || undefined;
+  if (changes.logoUrl !== undefined) {
+    const logoUrl = cleanText(changes.logoUrl);
+    if (logoUrl) update.logoUrl = logoUrl;
+    else {
+      unset.logoUrl = "";
+      unset.cloudinaryPublicId = "";
+    }
+  }
+  if (changes.cloudinaryPublicId !== undefined) {
+    const cloudinaryPublicId = cleanText(changes.cloudinaryPublicId);
+    if (cloudinaryPublicId) update.cloudinaryPublicId = cloudinaryPublicId;
+    else unset.cloudinaryPublicId = "";
+  }
   if (changes.status !== undefined) {
     if (changes.status !== "active" && changes.status !== "inactive") throw new Error("Invalid team status.");
     update.status = changes.status;
@@ -288,7 +330,7 @@ export async function updateTeam(
     throw error;
   }
   if (!result) throw new Error("Team not found.");
-  if (changes.shortName !== undefined) {
+  if (changes.shortName !== undefined || changes.logoUrl !== undefined || changes.cloudinaryPublicId !== undefined) {
     await (await getMongoDb()).collection("auctions").updateMany(
       publicTeamAuctionFilter(existing.tournamentId, existing.gender, teamId),
       publicRevisionUpdate("publicMetadataRevision"),

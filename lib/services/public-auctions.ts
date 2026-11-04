@@ -14,7 +14,7 @@ type PublicAuctionConfig = AuctionConfig & {
   publicMetadataRevision?: number;
   publicPlayerRevision?: number;
 };
-type PublicTeam = Pick<Team, "id" | "name" | "shortName" | "status">;
+type PublicTeam = Pick<Team, "id" | "name" | "shortName" | "status" | "logoUrl">;
 type PublicTeamDocument = PublicTeam & {
   tournamentId: string;
   gender: CompetitionGender;
@@ -93,7 +93,7 @@ async function getPublicMetadata(
         tournamentId: auction.tournamentId,
         gender: auction.gender,
         status: "active",
-      }, { projection: { _id: 0, id: 1, name: 1, shortName: 1, status: 1 } })
+      }, { projection: { _id: 0, id: 1, name: 1, shortName: 1, status: 1, logoUrl: 1 } })
       .sort({ name: 1 })
       .toArray(),
     database.collection<PublicTournament>("tournaments")
@@ -415,11 +415,12 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
       basePrice: tournamentPlayer?.basePrice ?? 0,
       status: tournamentPlayer?.status ?? "available",
       } : null,
-      highestTeam: leader ? { id: leader.id, name: leader.name, shortName: leader.shortName } : null,
+      highestTeam: leader ? { id: leader.id, name: leader.name, shortName: leader.shortName, ...(leader.logoUrl ? { logoUrl: leader.logoUrl } : {}) } : null,
       teams: teams.map((team) => ({
       id: team.id,
       name: team.name,
       shortName: team.shortName,
+      ...(team.logoUrl ? { logoUrl: team.logoUrl } : {}),
       remainingBudget: team.remainingBudget,
       playersCount: team.playersCount,
       squadSize: team.squadSize,

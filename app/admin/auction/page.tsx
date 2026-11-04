@@ -7,6 +7,7 @@ import AdminShell from "@/components/admin/AdminShell";
 import { PageHeader, SectionHeading, StatusBadge } from "@/components/ui/Primitives";
 import AuctionResultFeedback from "@/components/auction/AuctionResultFeedback";
 import PlayerPortrait from "@/components/auction/PlayerPortrait";
+import { optimizedImageUrl } from "@/lib/storage/image-url";
 import { canAddPremiumPlayer } from "@/lib/auction/category-rules";
 import type { AuctionConfig } from "@/types/auction-config";
 import type { Team } from "@/types/team";
@@ -20,6 +21,7 @@ type AuctionPlayer = Pick<Player, "id" | "name" | "role" | "category" | "age" | 
 type AuctionRoom = {
   auction: AuctionConfig | null;
   currentPlayer: AuctionPlayer | null;
+  nextPlayer: Pick<AuctionPlayer, "photoUrl"> | null;
   teams: (Team & { playersNeeded: number; minimumReserve: number | null; maximumAffordableBid: number; minimumNextBid: number; canPlaceNextBid: boolean; premiumPlayersCount: number; premiumPlayersLimit?: number })[];
   playerCount: number;
   roundTotal: number;
@@ -40,6 +42,21 @@ type AuctionAction = "initialize" | "start" | "pause" | "resume" | "complete" | 
 
 function formatMoney(value: number) {
   return `₹${value.toLocaleString("en-IN")}`;
+}
+
+function AuctionTeamLogo({ team }: { team: Pick<Team, "shortName" | "logoUrl"> }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageUrl = team.logoUrl && !imageFailed
+    ? optimizedImageUrl(team.logoUrl, { width: 192, height: 192, crop: "fit", trim: true })
+    : undefined;
+
+  return (
+    <span className="team-logo">
+      {imageUrl
+        ? <img src={imageUrl} alt="" width="192" height="192" loading="lazy" decoding="async" onError={() => setImageFailed(true)} />
+        : team.shortName}
+    </span>
+  );
 }
 
 async function getCorrectionPreview(auctionId: string, saleEventId: string): Promise<CorrectionPreview> {
@@ -449,6 +466,7 @@ function AdminAuctionContent() {
   return (
     <AdminShell>
       <div className="content-wrap auction-room">
+        {room.nextPlayer?.photoUrl && <link rel="preload" as="image" href={optimizedImageUrl(room.nextPlayer.photoUrl, { width: 900, height: 900 })} fetchPriority="low" />}
         <PageHeader
           eyebrow={`${gender === "female" ? "WOMEN'S" : "MEN'S"} AUCTION · ROUND ${auction.currentRound ?? 1}`}
           title="Auction room"
@@ -502,7 +520,7 @@ function AdminAuctionContent() {
             <div className="bid-panel-top"><span className="eyebrow">CURRENT BID</span><span className="round-label">ROUND {auction.currentRound ?? 1} · LOT {playerIndex >= 0 ? playerIndex + 1 : 0}/{room.roundTotal}</span></div>
             <strong className="big-bid">{formatMoney(auction.currentBid ?? 0)}</strong>
             <div className="winning-team">
-              {highestTeam ? <><span className="team-logo">{highestTeam.shortName}</span><div><small>HIGHEST BIDDER</small><b>{highestTeam.name}</b></div><span className="winning-mark">✓</span></> : <div><small>HIGHEST BIDDER</small><b>No bid yet</b></div>}
+              {highestTeam ? <><AuctionTeamLogo team={highestTeam} /><div><small>HIGHEST BIDDER</small><b>{highestTeam.name}</b></div><span className="winning-mark">✓</span></> : <div><small>HIGHEST BIDDER</small><b>No bid yet</b></div>}
             </div>
             {auction.status === "live" && currentPlayer && !auction.awaitingAdvance && (
               <div className="auction-bid-controls">
@@ -556,7 +574,7 @@ function AdminAuctionContent() {
                       && bid <= team.remainingBudget
                       && bid <= team.maximumAffordableBid;
                     return <button className={`team-bid-card${team.id === auction.highestTeamId ? " leading" : ""}`} key={team.id} type="button" disabled={saving || !canBid} onClick={() => void submitBid(team.id, bidAmount ? bid : undefined)} aria-label={`${team.name}, bid ${formatMoney(bid)}`}>
-                      <span className="team-bid-top"><span className="team-logo">{team.shortName}</span>{team.id === auction.highestTeamId && <StatusBadge tone="live">LEADING</StatusBadge>}</span>
+                      <span className="team-bid-top"><AuctionTeamLogo team={team} />{team.id === auction.highestTeamId && <StatusBadge tone="live">LEADING</StatusBadge>}</span>
                       <strong>{team.name}</strong>
                       <span className="team-bid-metrics">{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players{team.premiumPlayersLimit !== undefined ? ` · A/B/C ${team.premiumPlayersCount}/${team.premiumPlayersLimit}` : ""}</span>
                       <span className="team-bid-next">Bid {formatMoney(bid)}</span>
@@ -576,7 +594,7 @@ function AdminAuctionContent() {
             <div className="team-board-list">
               {auctionTeams.length === 0 ? <p>No eligible teams are configured.</p> : auctionTeams.map((team) => (
                 <div className="team-board-row" key={team.id}>
-                  <span className="team-logo">{team.shortName}</span>
+                  <AuctionTeamLogo team={team} />
                   <div>
                     <b>{team.name}</b>
                     <small>{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players{team.premiumPlayersLimit !== undefined ? ` · A/B/C ${team.premiumPlayersCount}/${team.premiumPlayersLimit}` : ""}</small>

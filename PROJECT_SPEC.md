@@ -964,7 +964,7 @@ CLOUDINARY_API_KEY=...
 CLOUDINARY_API_SECRET=...
 ```
 
-Only add Cloudinary variables when the integration is implemented. Keep all Cloudinary credentials server-side and never expose them through NEXT_PUBLIC_* variables.
+Set the Cloudinary values in Vercel Project Settings → Environment Variables for each environment that needs uploads, then redeploy. Keep all Cloudinary credentials server-side and never expose them through `NEXT_PUBLIC_*` variables.
 
 Google Drive API credentials are not required when importing public share links that can be downloaded without authentication.
 

@@ -3,6 +3,8 @@ import { AdminApiError, requireAdmin } from "@/lib/auth/admin-api";
 import { bulkUpsertPlayers } from "@/lib/services/players";
 import type { PlayerInput } from "@/types/firestore";
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     await requireAdmin();

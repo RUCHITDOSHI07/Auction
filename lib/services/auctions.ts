@@ -89,6 +89,7 @@ let historyIndexesPromise: Promise<string[]> | undefined;
 export interface AuctionRoom {
   auction: AuctionConfig | null;
   currentPlayer: (MongoPlayer & { auctionBasePrice: number; auctionStatus: TournamentPlayerDocument["status"] }) | null;
+  nextPlayer: Pick<MongoPlayer, "photoUrl"> | null;
   teams: AuctionTeamView[];
   playerCount: number;
   roundTotal: number;
@@ -312,7 +313,7 @@ export async function getAuctionRoom(
   const document = knownAuction && knownAuction.tournamentId === tournamentId && knownAuction.gender === gender
     ? knownAuction
     : await collections.auctions.findOne({ tournamentId, gender });
-  if (!document) return { auction: null, currentPlayer: null, teams: [], playerCount: 0, roundTotal: 0, roundSoldCount: 0, roundUnsoldCount: 0 };
+  if (!document) return { auction: null, currentPlayer: null, nextPlayer: null, teams: [], playerCount: 0, roundTotal: 0, roundSoldCount: 0, roundUnsoldCount: 0 };
 
   const auction = withoutId(document) as AuctionConfig;
   const roundEntriesQuery = auction.currentRound && auction.roundPlayerIds?.length
@@ -345,9 +346,51 @@ export async function getAuctionRoom(
         auctionStatus: tournamentPlayer.status,
       }
     : null;
+  let nextPlayer: Pick<MongoPlayer, "photoUrl"> | null = null;
+  const roundPlayerIds = auction.roundPlayerIds ?? [];
+  const currentPlayerIndex = auction.currentPlayerId ? roundPlayerIds.indexOf(auction.currentPlayerId) : -1;
+  const premiumLimit = auction.categoryRules?.enabled
+    ? auction.categoryRules.maxPremiumPlayersPerTeam
+    : undefined;
+  const categoryPhaseBlocksPreload = auction.categoryPhase === "premium" &&
+    premiumLimit !== undefined &&
+    teams.length > 0 &&
+    teams.every((team) => team.premiumPlayersCount >= premiumLimit);
+  if (
+    auction.status === "live" &&
+    currentPlayerIndex >= 0 &&
+    !categoryPhaseBlocksPreload
+  ) {
+    const laterPlayerIds = roundPlayerIds.slice(currentPlayerIndex + 1);
+    if (laterPlayerIds.length) {
+      const currentRound = auction.currentRound ?? 1;
+      const candidates = await collections.tournamentPlayers.find({
+        tournamentId,
+        gender,
+        playerId: { $in: laterPlayerIds },
+        status: { $in: ["available", "unsold"] },
+        $or: [
+          { lastAuctionRound: { $exists: false } },
+          { lastAuctionRound: { $lt: currentRound } },
+        ],
+      }).toArray();
+      candidates.sort((left, right) => laterPlayerIds.indexOf(left.playerId) - laterPlayerIds.indexOf(right.playerId));
+      for (const candidate of candidates) {
+        const nextPlayerDocument = await collections.players.findOne(
+          { id: candidate.playerId, gender },
+          { projection: { _id: 0, photoUrl: 1 } },
+        );
+        if (nextPlayerDocument) {
+          nextPlayer = { photoUrl: nextPlayerDocument.photoUrl };
+          break;
+        }
+      }
+    }
+  }
   return {
     auction,
     currentPlayer,
+    nextPlayer,
     teams,
     playerCount: auction.playerPoolIds?.length ?? 0,
     roundTotal: auction.roundPlayerIds?.length ?? 0,

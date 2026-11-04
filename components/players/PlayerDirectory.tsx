@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { PublicTournamentPlayer } from "@/lib/services/public-tournament-players";
 import { StatusBadge } from "@/components/ui/Primitives";
+import { optimizedImageUrl } from "@/lib/storage/image-url";
 
 function formatMoney(value: number) {
   return `₹${value.toLocaleString("en-IN")}`;
@@ -41,7 +42,9 @@ export default function PlayerDirectory({
           <div className="table-row" key={player.id}>
             <div className="player-cell">
               <div className="player-portrait" style={{ background: player.accent ?? "#d9ef75" }}>
-                {player.initials ?? player.name.slice(0, 2).toUpperCase()}
+                {player.photoUrl
+                  ? <img src={optimizedImageUrl(player.photoUrl,{width:112,height:112})} alt="" width="56" height="56" loading="lazy" decoding="async" />
+                  : player.initials ?? player.name.slice(0, 2).toUpperCase()}
               </div>
               <div><b>{player.name}</b><small>{player.age ?? "—"} years · {player.battingStyle ?? player.batting ?? "—"}</small></div>
             </div>

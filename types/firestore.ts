@@ -18,6 +18,7 @@ export interface Player {
   wingFlatNumber?: string;
   phoneNumber?: string;
   photoUrl?: string;
+  cloudinaryPublicId?: string;
   battingStyle?: string;
   bowlingStyle?: string;
   batting?: string;
@@ -41,6 +42,7 @@ export interface Team {
   name: string;
   shortName: string;
   logoUrl?: string;
+  cloudinaryPublicId?: string;
   color?: string;
   ownerName?: string;
   totalBudget: number;

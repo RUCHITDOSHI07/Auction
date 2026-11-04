@@ -29,9 +29,9 @@ export type AuctionResultsReport = {
   soldCount: number;
   unsoldCount: number;
   totalSpend: number;
-  highestSale: null | { id: string; name: string; role: string | null; category: string | null; status: string; basePrice: number; teamId: string | null; teamName: string | null; teamShortName: string | null; soldPrice: number | null; round: number | null; iconPurchase: boolean };
-  players: { id: string; name: string; role: string | null; category: string | null; status: string; basePrice: number; teamId: string | null; teamName: string | null; teamShortName: string | null; soldPrice: number | null; round: number | null; iconPurchase: boolean }[];
-  teams: { id: string; name: string; shortName: string; startingPurse: number; remainingBudget: number; spent: number; playersCount: number; maximumSquadSize: number }[];
+  highestSale: null | { id: string; name: string; role: string | null; category: string | null; status: string; photoUrl: string | null; basePrice: number; teamId: string | null; teamName: string | null; teamShortName: string | null; soldPrice: number | null; round: number | null; iconPurchase: boolean };
+  players: { id: string; name: string; role: string | null; category: string | null; status: string; photoUrl: string | null; basePrice: number; teamId: string | null; teamName: string | null; teamShortName: string | null; soldPrice: number | null; round: number | null; iconPurchase: boolean }[];
+  teams: { id: string; name: string; shortName: string; logoUrl?: string; startingPurse: number; remainingBudget: number; spent: number; playersCount: number; maximumSquadSize: number }[];
 };
 
 export async function getAuctionResults(tournamentId?: string, gender?: CompetitionGender) {
@@ -57,10 +57,10 @@ export async function getAuctionResults(tournamentId?: string, gender?: Competit
     const playerIds = entries.map((entry) => entry.playerId);
     const teamIds = [...new Set(entries.flatMap((entry) => entry.teamId ? [entry.teamId] : []))];
     const [players, teams] = await Promise.all([
-      database.collection<{ id: string; name?: string; fullName?: string; role?: string; category?: string }>("players")
-        .find({ id: { $in: playerIds } }, { projection: { id: 1, name: 1, fullName: 1, role: 1, category: 1 } }).toArray(),
-      database.collection<{ id: string; name: string; shortName: string }>("teams")
-        .find({ id: { $in: teamIds }, tournamentId: auction.tournamentId, gender: auction.gender }, { projection: { id: 1, name: 1, shortName: 1 } }).toArray(),
+      database.collection<{ id: string; name?: string; fullName?: string; role?: string; category?: string; photoUrl?: string }>("players")
+        .find({ id: { $in: playerIds } }, { projection: { id: 1, name: 1, fullName: 1, role: 1, category: 1, photoUrl: 1 } }).toArray(),
+      database.collection<{ id: string; name: string; shortName: string; logoUrl?: string }>("teams")
+        .find({ id: { $in: teamIds }, tournamentId: auction.tournamentId, gender: auction.gender }, { projection: { id: 1, name: 1, shortName: 1, logoUrl: 1 } }).toArray(),
     ]);
     const playerById = new Map(players.map((player) => [player.id, player]));
     const teamById = new Map(teams.map((team) => [team.id, team]));
@@ -70,6 +70,7 @@ export async function getAuctionResults(tournamentId?: string, gender?: Competit
       role: playerById.get(entry.playerId)?.role ?? null,
       category: entry.category ?? playerById.get(entry.playerId)?.category ?? null,
       status: entry.status,
+      photoUrl: playerById.get(entry.playerId)?.photoUrl ?? null,
       basePrice: entry.basePrice,
       teamId: entry.teamId ?? null,
       teamName: entry.teamId ? teamById.get(entry.teamId)?.name ?? null : null,
@@ -83,6 +84,7 @@ export async function getAuctionResults(tournamentId?: string, gender?: Competit
       id: team.id,
       name: team.name,
       shortName: team.shortName,
+      ...(team.logoUrl ? { logoUrl: team.logoUrl } : {}),
       startingPurse: auction ? room.auction?.pursePerTeam ?? team.totalBudget : team.totalBudget,
       remainingBudget: team.remainingBudget,
       spent: Math.max(0, (room.auction?.pursePerTeam ?? team.totalBudget) - team.remainingBudget),

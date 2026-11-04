@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import AdminShell from "@/components/admin/AdminShell";
 import type { Player } from "@/types/firestore";
 import { PageHeader, StatusBadge } from "@/components/ui/Primitives";
+import { optimizedImageUrl } from "@/lib/storage/image-url";
 
 type PlayerRecord = Player & {
   gender?: string;
@@ -81,8 +82,12 @@ function PlayerPhoto({ player }: { player: PlayerRecord }) {
   return (
     <div className="player-card-photo">
       <img
-        src={url}
+        src={optimizedImageUrl(url,{width:480,height:480})}
         alt={getPlayerName(player) + " portrait"}
+        width="480"
+        height="480"
+        loading="lazy"
+        decoding="async"
         onError={function () {
           setFailed(true);
         }}
@@ -144,7 +149,8 @@ function AdminPlayersContent() {
 
   useEffect(
     function () {
-      void loadPlayers();
+      const request = window.setTimeout(() => void loadPlayers(), 0);
+      return () => window.clearTimeout(request);
     },
     [loadPlayers]
   );

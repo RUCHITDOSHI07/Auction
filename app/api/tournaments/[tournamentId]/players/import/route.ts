@@ -3,6 +3,8 @@ import { AdminApiError, requireAdmin } from "@/lib/auth/admin-api";
 import { importPlayersIntoTournament } from "@/lib/services/tournament-players";
 import type { PlayerInput } from "@/types/firestore";
 
+export const maxDuration = 60;
+
 export async function POST(request: Request, { params }: { params: Promise<{ tournamentId: string }> }) {
   try {
     await requireAdmin();

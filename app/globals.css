@@ -464,7 +464,7 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
 .team-board .section-heading { margin-bottom:.65rem; }
 .team-board .section-heading h2 { font-size:1.1rem; }
 .team-board-row { min-width:0; gap:.55rem; padding:.65rem 0; }
-.team-board-row .team-logo { width:1.9rem; height:1.9rem; flex-basis:1.9rem; }
+.team-board-row .team-logo { width:2.25rem; height:2.25rem; flex-basis:2.25rem; }
 .team-board-row div { min-width:0; }
 .team-board-row b { display:block; overflow-wrap:anywhere; font-size:.68rem; }
 .team-board-row small { display:block; margin-top:.15rem; font-size:.58rem; }
@@ -931,16 +931,16 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
 
 /* Team management UI */
 .team-context-bar { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.8rem; margin:1.2rem 0; }
-.team-context-bar > div { border:1px solid var(--line); background:rgba(255,255,255,.55); padding:1rem; }
+.team-context-bar > div { border:1px solid var(--line); background:var(--surface); padding:1rem; }
 .team-context-bar span,.team-context-bar strong { display:block; }
 .team-context-bar span { color:var(--muted); font-size:.65rem; }
 .team-context-bar strong { margin-top:.35rem; font-family:Georgia,serif; font-size:1.35rem; font-weight:400; }
-.team-form { max-width:70rem; margin-bottom:1.2rem; border:1px solid var(--line); background:rgba(255,255,255,.6); padding:1.4rem; }
+.team-form { max-width:70rem; margin-bottom:1.2rem; border:1px solid var(--line); background:var(--surface); padding:1.4rem; }
 .team-form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
-.team-form label { display:flex; min-width:0; flex-direction:column; gap:.45rem; color:var(--muted); font-size:.7rem; font-weight:700; }
-.team-form input { width:100%; border:1px solid var(--line); background:#fff9; padding:.75rem; color:var(--ink); outline-color:var(--lime); }
+.team-form label { display:flex; min-width:0; flex-direction:column; gap:.45rem; color:#cbd6cf; font-size:.7rem; font-weight:700; }
+.team-form input { width:100%; border:1px solid var(--line); background:#0c1513; padding:.75rem; color:var(--cream); outline-color:var(--lime); }
 .team-grid-modern { align-items:stretch; }
-.team-admin-card { min-width:0; border:1px solid var(--line); background:rgba(255,255,255,.62); padding:1.25rem; }
+.team-admin-card { min-width:0; border:1px solid var(--line); background:var(--surface); padding:1.25rem; }
 .team-admin-card-top { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 .team-admin-card h2 { margin-top:1rem; font-size:1.5rem; overflow-wrap:anywhere; }
 .team-admin-card > p { margin-top:.35rem; min-height:1.2rem; color:var(--muted); font-size:.7rem; }
@@ -950,6 +950,9 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
 .team-admin-metrics span,.team-admin-metrics small { color:var(--muted); font-size:.62rem; }
 .team-admin-metrics strong { margin:.3rem 0; font-family:Georgia,serif; font-size:1.25rem; font-weight:400; overflow-wrap:anywhere; }
 .team-empty { margin-top:1rem; }
+.team-form-feedback { margin:1rem 0; border-left:3px solid; padding:.8rem 1rem; font-size:.8rem; line-height:1.5; }
+.team-form-feedback-error { border-color:#ef8d7a; background:rgba(170,61,48,.2); color:#ffd0c2; }
+.team-form-feedback-success { border-color:var(--lime); background:rgba(167,216,122,.12); color:#d4edc2; }
 @media (max-width:560px) { .team-context-bar,.team-form-grid { grid-template-columns:1fr; } .team-admin-metrics { gap:.5rem; } }
 
 .auction-config-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin:1rem 0 1.5rem; }
@@ -969,7 +972,31 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
 .auction-team strong { font-size:.75rem; overflow-wrap:anywhere; }
 .auction-team small { color:var(--muted); font-size:.63rem; }
 .team-logo { display:grid; width:2.5rem; height:2.5rem; flex:0 0 2.5rem; place-items:center; overflow:hidden; border:1px solid var(--line); background:#fff; font-size:.62rem; font-weight:800; }
-.team-logo img { width:100%; height:100%; object-fit:cover; }
+.team-logo img { width:100%; height:100%; object-fit:contain; }
+.team-admin-card .team-logo { width:5rem; height:5rem; flex-basis:5rem; font-size:.95rem; }
+.team-form .image-file-preview { width:6.25rem; height:6.25rem; flex-basis:6.25rem; background:#fff; }
+.team-form .image-file-preview img { object-fit:contain; }
+.winning-team .team-logo { width:3.75rem; height:3.75rem; flex-basis:3.75rem; font-size:.78rem; }
+.public-winner .team-logo { width:5.5rem; height:5.5rem; flex-basis:5.5rem; font-size:.9rem; }
+.public-team-heading .team-logo { width:5rem; height:5rem; flex-basis:5rem; font-size:.85rem; }
+.results-team-heading .team-logo { width:3.25rem; height:3.25rem; flex-basis:3.25rem; font-size:.7rem; }
+.public-winner .team-logo img,.public-team-heading .team-logo img { padding:0; }
+.image-file-picker { display:flex; align-items:center; gap:1rem; margin-top:1rem; border:1px solid var(--line); border-radius:5px; background:var(--surface-raised); padding:.8rem; }
+.image-file-preview { display:grid; width:5rem; height:5rem; flex:0 0 5rem; place-items:center; overflow:hidden; border:1px solid var(--line); border-radius:5px; background:#17231e; color:var(--lime); font-size:.8rem; font-weight:800; }
+.image-file-preview img { width:100%; height:100%; object-fit:cover; }
+.image-file-actions { display:flex; min-width:0; flex-direction:column; gap:.45rem; color:var(--muted); font-size:.72rem; }
+.image-file-actions label { display:grid; gap:.4rem; color:var(--cream); font-weight:700; }
+.image-file-actions input { max-width:100%; color:var(--muted); font-size:.7rem; }
+.image-file-actions .button { align-self:flex-start; min-height:2rem; padding:.35rem .6rem; font-size:.68rem; }
+.image-file-error { color:#ffd0c2; }
+.public-roster-player { display:flex; align-items:center; gap:.65rem; }
+.public-roster-player img,.public-roster-fallback { width:2.5rem; height:2.5rem; flex:0 0 2.5rem; border-radius:50%; object-fit:cover; }
+.public-roster-fallback { display:grid; place-items:center; background:#26372f; color:var(--lime); font-size:.62rem; font-weight:800; }
+.results-player-cell { display:flex; min-width:0; align-items:center; gap:.6rem; }
+.results-player-cell img,.results-player-photo-fallback { width:2.8rem; height:2.8rem; flex:0 0 2.8rem; border-radius:50%; object-fit:cover; }
+.results-player-photo-fallback { display:grid; place-items:center; background:#26372f; color:var(--lime); font-size:.65rem; font-weight:800; }
+.results-player-cell > span:last-child { display:flex; min-width:0; flex-direction:column; }
+@media (max-width:560px) { .image-file-picker { align-items:flex-start; flex-direction:column; }.image-file-preview { width:4.5rem; height:4.5rem; flex-basis:4.5rem; } }
 .auction-rule-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.8rem; margin-top:1rem; }
 .auction-rule-grid label { display:flex; flex-direction:column; gap:.45rem; color:var(--muted); font-size:.68rem; font-weight:700; }
 .auction-rule-grid input { width:100%; border:1px solid var(--line); background:#fff9; padding:.75rem; color:var(--ink); outline-color:var(--lime); }
@@ -1274,9 +1301,9 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
 }
 .auction-room .team-bid-top { align-items:center; gap:.35rem; }
 .auction-room .team-bid-top .team-logo {
-  width:1.55rem;
-  height:1.55rem;
-  flex-basis:1.55rem;
+  width:2.5rem;
+  height:2.5rem;
+  flex-basis:2.5rem;
 }
 .auction-room .team-bid-card > strong {
   overflow:hidden;

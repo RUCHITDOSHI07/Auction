@@ -11,6 +11,7 @@ export interface Team {
   iconPlayerId?: string;
   ownerName?: string;
   logoUrl?: string;
+  cloudinaryPublicId?: string;
   totalBudget: number;
   remainingBudget: number;
   squadSize: number;
@@ -28,6 +29,7 @@ export type TeamInput = {
   iconPlayerId?: string;
   ownerName?: string;
   logoUrl?: string;
+  cloudinaryPublicId?: string;
   totalBudget: number;
   squadSize: number;
 };

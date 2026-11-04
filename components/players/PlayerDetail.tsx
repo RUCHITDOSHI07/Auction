@@ -8,6 +8,9 @@ import { normalizePlayerGender } from "@/lib/players";
 import type { MongoPlayer } from "@/lib/services/players";
 import type { PlayerGender } from "@/types/firestore";
 import { PageHeader, SectionHeading, StatusBadge } from "@/components/ui/Primitives";
+import ImageFilePicker from "@/components/ui/ImageFilePicker";
+import { uploadImageFile } from "@/lib/image-upload-client";
+import { optimizedImageUrl } from "@/lib/storage/image-url";
 
 type PlayerRecord = MongoPlayer & { gender?: PlayerGender };
 type PlayerForm = {
@@ -17,7 +20,6 @@ type PlayerForm = {
   category: string;
   age: string;
   basePrice: string;
-  photoUrl: string;
   dateOfBirth: string;
   wingFlatNumber: string;
   phoneNumber: string;
@@ -34,7 +36,6 @@ function toForm(player: PlayerRecord): PlayerForm {
     category: player.category ?? "",
     age: player.age?.toString() ?? "",
     basePrice: player.basePrice?.toString() ?? "0",
-    photoUrl: player.photoUrl ?? "",
     dateOfBirth: player.dateOfBirth ?? "",
     wingFlatNumber: player.wingFlatNumber ?? "",
     phoneNumber: player.phoneNumber ?? "",
@@ -56,6 +57,9 @@ export default function PlayerDetail({ playerId, initialPlayer, adminMode = fals
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [removePhoto, setRemovePhoto] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const loadPlayer = useCallback(async () => {
     setLoading(true);
@@ -66,6 +70,8 @@ export default function PlayerDetail({ playerId, initialPlayer, adminMode = fals
       if (!response.ok || !result.player) throw new Error(result.error ?? "Unable to load this player.");
       setPlayer(result.player);
       setForm(toForm(result.player));
+      setPhotoFile(null);
+      setRemovePhoto(false);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load this player.");
     } finally {
@@ -85,6 +91,7 @@ export default function PlayerDetail({ playerId, initialPlayer, adminMode = fals
     setSaving(true);
     setMessage(null);
     setError(null);
+    let imageWarning: string | undefined;
     try {
       const response = await fetch(`/api/players/${encodeURIComponent(playerId)}`, {
         method: "PATCH",
@@ -97,7 +104,6 @@ export default function PlayerDetail({ playerId, initialPlayer, adminMode = fals
           category: form.category.trim(),
           age: form.age ? Number(form.age) : undefined,
           basePrice: Number(form.basePrice),
-          photoUrl: form.photoUrl.trim() || undefined,
           dateOfBirth: form.dateOfBirth.trim() || undefined,
           wingFlatNumber: form.wingFlatNumber.trim() || undefined,
           phoneNumber: form.phoneNumber.trim() || undefined,
@@ -110,13 +116,28 @@ export default function PlayerDetail({ playerId, initialPlayer, adminMode = fals
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Unable to save player.");
+      if (photoFile) {
+        setUploadProgress(0);
+        const imageResult = await uploadImageFile(
+          `/api/players/${encodeURIComponent(playerId)}/image`,
+          photoFile,
+          setUploadProgress,
+        );
+        imageWarning = imageResult.warning;
+      } else if (removePhoto && player?.photoUrl) {
+        const imageResponse = await fetch(`/api/players/${encodeURIComponent(playerId)}/image`, { method: "DELETE" });
+        const imageResult = await imageResponse.json() as { error?: string; warning?: string };
+        if (!imageResponse.ok) throw new Error(imageResult.error ?? "Player details were saved, but the photo could not be removed.");
+        imageWarning = imageResult.warning;
+      }
       await loadPlayer();
       setEditing(false);
-      setMessage("Player changes saved to MongoDB.");
+      setMessage(imageWarning ?? (photoFile ? "Player changes and photo saved to MongoDB." : removePhoto ? "Player details saved and photo removed." : "Player changes saved to MongoDB."));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save player.");
     } finally {
       setSaving(false);
+      setUploadProgress(null);
     }
   }
 
@@ -159,7 +180,7 @@ export default function PlayerDetail({ playerId, initialPlayer, adminMode = fals
               <label>Category<input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} /></label>
               <label>Age<input type="number" min="1" max="120" value={form.age} onChange={(event) => setForm({ ...form, age: event.target.value })} /></label>
               <label>Base price<input type="number" min="0" step="any" value={form.basePrice} onChange={(event) => setForm({ ...form, basePrice: event.target.value })} required /></label>
-              <label className="full-field">Photo URL / reference<input value={form.photoUrl} onChange={(event) => setForm({ ...form, photoUrl: event.target.value })} /></label>
+              <div className="full-field"><ImageFilePicker label="Player photo" currentUrl={removePhoto?undefined:player.photoUrl} fallback={getInitials(player)} file={photoFile} disabled={saving} onFileChange={file=>{setPhotoFile(file);if(file)setRemovePhoto(false);}} />{player.photoUrl&&!photoFile&&!removePhoto&&<button className="button button-outline" type="button" disabled={saving} onClick={()=>setRemovePhoto(true)}>Remove saved photo</button>}{removePhoto&&<button className="button button-outline" type="button" disabled={saving} onClick={()=>setRemovePhoto(false)}>Keep current photo</button>}{uploadProgress !== null && <p role="status">Uploading photo… {uploadProgress}%</p>}</div>
               <label>Date of birth<input value={form.dateOfBirth} onChange={(event) => setForm({ ...form, dateOfBirth: event.target.value })} /></label>
               <label>Wing / flat number<input value={form.wingFlatNumber} onChange={(event) => setForm({ ...form, wingFlatNumber: event.target.value })} /></label>
               <label>Phone number<input value={form.phoneNumber} onChange={(event) => setForm({ ...form, phoneNumber: event.target.value })} /></label>
@@ -172,7 +193,7 @@ export default function PlayerDetail({ playerId, initialPlayer, adminMode = fals
         ) : (
           <>
             <div className="player-detail-hero">
-              {player.photoUrl ? <img src={player.photoUrl} alt={`${playerName} portrait`} /> : <div className="player-detail-fallback" style={{ background: player.accent ?? "#d9ef75" }}>{getInitials(player)}</div>}
+              {player.photoUrl ? <img src={optimizedImageUrl(player.photoUrl,{width:640,height:640})} alt={`${playerName} portrait`} width="640" height="640" decoding="async" /> : <div className="player-detail-fallback" style={{ background: player.accent ?? "#d9ef75" }}>{getInitials(player)}</div>}
               <div className="player-detail-summary"><StatusBadge tone={status === "SOLD" ? "success" : status === "UNSOLD" ? "warning" : status === "ON_AUCTION" ? "live" : "neutral"}>{status.replace("_", " ")}</StatusBadge><h2>{player.role}</h2><p>{player.gender ? `${player.gender} · ` : "Gender not set · "}{player.category ?? "Uncategorized"}</p></div>
             </div>
             <section className="panel"><SectionHeading title="Player information" /><div className="player-info-grid"><div><small>Base price</small><strong>{player.basePrice} cr</strong></div><div><small>Age</small><strong>{player.age ?? "—"}</strong></div><div><small>Batting</small><strong>{player.battingStyle ?? player.batting ?? "—"}</strong></div><div><small>Bowling</small><strong>{player.bowlingStyle ?? player.bowling ?? "—"}</strong></div><div><small>Phone</small><strong>{player.phoneNumber ?? "—"}</strong></div><div><small>Player ID</small><strong>{player.id}</strong></div></div></section>
