@@ -576,11 +576,14 @@ function AdminAuctionContent() {
                       && bid <= team.remainingBudget
                       && bid <= team.maximumAffordableBid;
                     return <button className={`team-bid-card${team.id === auction.highestTeamId ? " leading" : ""}`} key={team.id} type="button" disabled={saving || !canBid} onClick={() => void submitBid(team.id, bidAmount ? bid : undefined)} aria-label={`${team.name}, bid ${formatMoney(bid)}`}>
-                      <span className="team-bid-top"><AuctionTeamLogo team={team} />{team.id === auction.highestTeamId && <StatusBadge tone="live">LEADING</StatusBadge>}</span>
-                      <strong>{team.name}</strong>
-                      <span className="team-bid-metrics">{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players{team.premiumPlayersLimit !== undefined ? ` · A/B/C ${team.premiumPlayersCount}/${team.premiumPlayersLimit}` : ""}</span>
+                      <span className="team-bid-card-heading"><AuctionTeamLogo team={team} /><strong>{team.name}</strong>{team.id === auction.highestTeamId && <StatusBadge tone="live">LEADING</StatusBadge>}</span>
+                      <span className="team-bid-card-metrics">
+                        <span><small>REMAINING PURSE</small><b>{formatMoney(team.remainingBudget)}</b></span>
+                        <span><small>MAXIMUM BID</small><b>{formatMoney(team.maximumAffordableBid)}</b></span>
+                        <span><small>SQUAD</small><b>{team.playersCount}/{auction.maximumSquadSize}</b></span>
+                        <span><small>A/B/C PLAYERS</small><b>{team.premiumPlayersCount}{team.premiumPlayersLimit === undefined ? "" : `/${team.premiumPlayersLimit}`}</b></span>
+                      </span>
                       <span className="team-bid-next">Bid {formatMoney(bid)}</span>
-                      <span className="team-bid-limit"><b>MAX BID</b> {formatMoney(team.maximumAffordableBid)}<small> after minimum-squad reserve</small></span>
                     </button>;
                   })}
                 </div>
@@ -594,16 +597,25 @@ function AdminAuctionContent() {
           <details className="panel team-board team-board-details" open={auction.status !== "live"}>
             <summary><SectionHeading title={`Eligible teams · ${auctionTeams.length}`} /></summary>
             <div className="team-board-list">
-              {auctionTeams.length === 0 ? <p>No eligible teams are configured.</p> : auctionTeams.map((team) => (
-                <div className="team-board-row" key={team.id}>
-                  <AuctionTeamLogo team={team} />
-                  <div>
-                    <b>{team.name}</b>
-                    <small>{formatMoney(team.remainingBudget)} remaining · {team.playersCount}/{auction.maximumSquadSize} players{team.premiumPlayersLimit !== undefined ? ` · A/B/C ${team.premiumPlayersCount}/${team.premiumPlayersLimit}` : ""}</small>
-                    <small className="team-board-max-bid">MAX BID {formatMoney(team.maximumAffordableBid)}</small>
+              {auctionTeams.length === 0 ? <p>No eligible teams are configured.</p> : auctionTeams.map((team) => {
+                const squadProgress = auction.maximumSquadSize > 0
+                  ? Math.min(100, team.playersCount / auction.maximumSquadSize * 100)
+                  : 0;
+                return (
+                  <div className="team-board-row" key={team.id}>
+                    <div className="team-board-heading"><AuctionTeamLogo team={team} /><b>{team.name}</b></div>
+                    <div className="team-board-metrics">
+                      <span><small>REMAINING PURSE</small><b>{formatMoney(team.remainingBudget)}</b></span>
+                      <span><small>MAXIMUM BID</small><b>{formatMoney(team.maximumAffordableBid)}</b></span>
+                      <span><small>SQUAD</small><b>{team.playersCount}/{auction.maximumSquadSize}</b></span>
+                      <span><small>A/B/C PLAYERS</small><b>{team.premiumPlayersCount}{team.premiumPlayersLimit === undefined ? "" : `/${team.premiumPlayersLimit}`}</b></span>
+                    </div>
+                    <div className="team-board-progress" role="progressbar" aria-label="Squad spots filled" aria-valuenow={team.playersCount} aria-valuemin={0} aria-valuemax={auction.maximumSquadSize}>
+                      <span style={{ width: `${squadProgress}%` }} />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </details>
         </div>

@@ -150,7 +150,6 @@ export default function AuctionResultFeedback({ variant, result, storageKey }: A
 
   return (
     <>
-      <div className="public-result-sound-control">{soundControl}</div>
       {isVisible && result && <div className={`public-result-overlay result-${result.outcome}`} role="status" aria-live="assertive">
         <article className="public-result-card">
           <PlayerPortrait className="auction-result-portrait" name={result.playerName} initials={result.playerInitials} photoUrl={result.playerPhotoUrl} />

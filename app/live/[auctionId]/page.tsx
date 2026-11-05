@@ -179,16 +179,108 @@ export default function PublicLivePage() {
       <AuctionResultFeedback variant="public" result={data.result} storageKey={`public-auction-${auction.id}`} />
       {stateMessage && <div className="public-auction-state"><StatusBadge tone={statusTone}>{stateMessage}</StatusBadge></div>}
       <div className="public-live-grid">
-        <section className="public-player-stage">
-          {currentPlayer ? <>
-            <PlayerPortrait className="public-player-portrait" name={currentPlayer.name} initials={currentPlayer.initials} photoUrl={currentPlayer.photoUrl} />
-            <div className="public-player-details"><span className="eyebrow">CURRENT PLAYER · {currentPlayer.id}</span><h1>{currentPlayer.name}</h1><p>{[currentPlayer.role, currentPlayer.category, currentPlayer.age ? `${currentPlayer.age} years` : null].filter(Boolean).join(" · ")}</p><div className="public-details"><span><small>BASE PRICE</small><b>{money(currentPlayer.basePrice)}</b></span><span><small>BATTING</small><b>{currentPlayer.batting ?? "Not provided"}</b></span><span><small>BOWLING</small><b>{currentPlayer.bowling ?? "Not provided"}</b></span></div></div>
-          </> : <div className="public-round-complete"><span className="eyebrow">ROUND {auction.currentRound ?? "-"}</span><h1>{auction.status === "completed" ? "Auction complete" : "Round complete"}</h1><p>{auction.roundSoldCount} sold · {auction.roundUnsoldCount} unsold</p></div>}
+        <div className="public-live-left-column">
+          <section className="public-player-stage">
+            {currentPlayer ? <>
+              <PlayerPortrait className="public-player-portrait" name={currentPlayer.name} initials={currentPlayer.initials} photoUrl={currentPlayer.photoUrl} />
+              <div className="public-player-details">
+                <div className="public-player-summary">
+                  <h1>{currentPlayer.name}</h1>
+                  <div className="public-player-meta">
+                    <span><small>CATEGORY</small><b>{currentPlayer.category ?? "Not provided"}</b></span>
+                    <span><small>BASE PRICE</small><b>{money(currentPlayer.basePrice)}</b></span>
+                    <span><small>AGE</small><b>{currentPlayer.age ? `${currentPlayer.age} years` : "Not provided"}</b></span>
+                  </div>
+                </div>
+                <div className="public-player-attributes">
+                  <span><small>ROLE</small><b>{currentPlayer.role ?? "Not provided"}</b></span>
+                  <span><small>BATTING</small><b>{currentPlayer.batting ?? "Not provided"}</b></span>
+                  <span><small>BOWLING</small><b>{currentPlayer.bowling ?? "Not provided"}</b></span>
+                </div>
+              </div>
+            </> : <div className="public-round-complete"><span className="eyebrow">ROUND {auction.currentRound ?? "-"}</span><h1>{auction.status === "completed" ? "Auction complete" : "Round complete"}</h1><p>{auction.roundSoldCount} sold · {auction.roundUnsoldCount} unsold</p></div>}
+          </section>
+          <section className="public-current-bid">
+            <span className="eyebrow">CURRENT BID</span>
+            <strong>{money(auction.currentBid)}</strong>
+            <div className="public-winner"><span className="team-logo">{highestTeam?.logoUrl?<img src={optimizedImageUrl(highestTeam.logoUrl,{width:256,height:256,crop:"fit",trim:true})} alt="" width="256" height="256" loading="lazy" decoding="async"/>:highestTeam?.shortName ?? "--"}</span><div><small>LEADING TEAM</small><b>{highestTeam?.name ?? "No bids yet"}</b></div></div>
+            <span className="public-increment">Bid increment · {money(auction.bidIncrement)}</span>
+          </section>
+        </div>
+        <section className="public-squad-section">
+          <div className="public-section-title">
+            <h2>Squads and purse</h2>
+          </div>
+          <div className="public-team-grid">
+            {teams.map((team) => {
+              const categoryLimitReached = team.premiumPlayersLimit !== undefined
+                && team.premiumPlayersCount >= team.premiumPlayersLimit;
+              const squadProgress = team.squadSize > 0
+                ? Math.min(100, team.playersCount / team.squadSize * 100)
+                : 0;
+
+              return (
+                <details
+                  className={`public-team${team.id === highestTeam?.id ? " public-team-leading" : ""}`}
+                  key={team.id}
+                >
+                  <summary className="public-team-summary">
+                    <span className="public-team-logo">
+                      <span className="team-logo">
+                        {team.logoUrl
+                          ? <img src={optimizedImageUrl(team.logoUrl, { width: 256, height: 256, crop: "fit", trim: true })} alt="" width="256" height="256" loading="lazy" decoding="async" />
+                          : team.shortName}
+                      </span>
+                    </span>
+                    <div className="public-team-content">
+                      <div className="public-team-heading">
+                        <strong>{team.name}</strong>
+                        {team.id === highestTeam?.id && <StatusBadge tone="live">LEADING</StatusBadge>}
+                      </div>
+                      <div className="public-team-metrics">
+                        <span><small>REMAINING PURSE</small><b>{money(team.remainingBudget)}</b></span>
+                        <span><small>MAXIMUM BID</small><b>{money(team.maximumAffordableBid)}</b></span>
+                        <span><small>SQUAD</small><b>{team.playersCount}/{team.squadSize}</b></span>
+                        <span><small>A/B/C PLAYERS</small><b>{team.premiumPlayersCount}{team.premiumPlayersLimit === undefined ? "" : `/${team.premiumPlayersLimit}`}</b></span>
+                      </div>
+                      {categoryLimitReached && <span className={`public-category-limit${currentPlayerIsPremium ? " blocked" : ""}`}>A/B/C LIMIT REACHED{currentPlayerIsPremium ? " · CANNOT BID ON THIS PLAYER" : ""}</span>}
+                      <div className="public-squad-track" role="progressbar" aria-label="Squad spots filled" aria-valuenow={team.playersCount} aria-valuemin={0} aria-valuemax={team.squadSize}>
+                        <span style={{ width: `${squadProgress}%` }} />
+                      </div>
+                    </div>
+                  </summary>
+                  <div className="public-team-roster">
+                    <h3>Selected players</h3>
+                    {team.players.length ? (
+                      <ul>
+                        {team.players.map((player) => (
+                          <li key={player.id}>
+                            <span className="public-roster-player">
+                              {player.photoUrl
+                                ? <img src={optimizedImageUrl(player.photoUrl, { width: 96, height: 96 })} alt="" width="48" height="48" loading="lazy" decoding="async" />
+                                : <span className="public-roster-fallback">{player.name.slice(0, 2).toUpperCase()}</span>}
+                              <span>
+                                <strong>{player.name}</strong>
+                                <small>{[player.iconPurchase ? "Icon player" : "Auction purchase", player.category, player.role].filter(Boolean).join(" · ")}</small>
+                              </span>
+                            </span>
+                            <b>{money(player.amount)}</b>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : <p>No players selected yet.</p>}
+                    <h3>Open spots</h3>
+                    {team.emptySpots
+                      ? <ul className="public-empty-spots">{Array.from({ length: team.emptySpots }, (_, index) => <li key={index}>Open squad spot {index + 1}</li>)}</ul>
+                      : <p>Squad is full.</p>}
+                  </div>
+                </details>
+              );
+            })}
+          </div>
         </section>
-        <section className="public-current-bid"><span className="eyebrow">CURRENT BID</span><strong>{money(auction.currentBid)}</strong><div className="public-winner"><span className="team-logo">{highestTeam?.logoUrl?<img src={optimizedImageUrl(highestTeam.logoUrl,{width:256,height:256,crop:"fit",trim:true})} alt="" width="256" height="256" loading="lazy" decoding="async"/>:highestTeam?.shortName ?? "--"}</span><div><small>LEADING TEAM</small><b>{highestTeam?.name ?? "No bids yet"}</b></div></div><span className="public-increment">Bid increment · {money(auction.bidIncrement)}</span>{currentPlayerIsPremium && <p className="public-category-bid-note">A/B/C player · teams at their {teams[0]?.premiumPlayersLimit ?? 2}-player category limit cannot bid.</p>}</section>
       </div>
-      <section className="public-squad-section"><div className="public-section-title"><span className="eyebrow">TEAM STATUS · {teams.length} TEAMS · {auction.remainingPlayerCount} PLAYERS REMAINING{auction.categoryPhase ? ` · ${auction.categoryPhase === "premium" ? "A/B/C" : "GENERAL"} PHASE` : ""}</span><h2>Squads and purse</h2><p>Select a team to view its players and remaining squad spots.</p></div><div className="public-team-grid">{teams.map((team) => {const categoryLimitReached=team.premiumPlayersLimit!==undefined&&team.premiumPlayersCount>=team.premiumPlayersLimit;return <details className={`public-team${team.id === highestTeam?.id ? " public-team-leading" : ""}`} key={team.id}><summary className="public-team-summary"><div className="public-team-heading"><span className="team-logo">{team.logoUrl?<img src={optimizedImageUrl(team.logoUrl,{width:256,height:256,crop:"fit",trim:true})} alt="" width="256" height="256" loading="lazy" decoding="async"/>:team.shortName}</span><strong>{team.name}</strong>{team.id === highestTeam?.id && <StatusBadge tone="live">LEADING</StatusBadge>}</div><div className="public-team-metrics"><span><small>REMAINING PURSE</small><b>{money(team.remainingBudget)}</b></span><span><small>SQUAD</small><b>{team.playersCount}/{team.squadSize}</b></span><span><small>A/B/C PLAYERS</small><b>{team.premiumPlayersCount}{team.premiumPlayersLimit === undefined ? "" : `/${team.premiumPlayersLimit}`}</b></span><span className="public-max-bid"><small>MAX BID</small><b>{money(team.maximumAffordableBid)}</b></span></div>{categoryLimitReached&&<span className={`public-category-limit${currentPlayerIsPremium?" blocked":""}`}>A/B/C LIMIT REACHED{currentPlayerIsPremium?" · CANNOT BID ON THIS PLAYER":""}</span>}<div className="public-squad-track"><span style={{ width: `${team.squadSize > 0 ? Math.min(100, team.playersCount / team.squadSize * 100) : 0}%` }} /></div><small className="public-players-needed">{team.playersNeeded} minimum slots needed · max bid reserves for those slots</small><span className="public-team-expand-hint">View players and open spots {team.playersCount}/{team.squadSize}</span></summary><div className="public-team-roster"><h3>Selected players</h3>{team.players.length ? <ul>{team.players.map((player) => <li key={player.id}><span className="public-roster-player">{player.photoUrl?<img src={optimizedImageUrl(player.photoUrl,{width:96,height:96})} alt="" width="48" height="48" loading="lazy" decoding="async"/>:<span className="public-roster-fallback">{player.name.slice(0,2).toUpperCase()}</span>}<span><strong>{player.name}</strong><small>{[player.iconPurchase ? "Icon player" : "Auction purchase", player.category, player.role].filter(Boolean).join(" · ")}</small></span></span><b>{money(player.amount)}</b></li>)}</ul> : <p>No players selected yet.</p>}<h3>Open spots</h3>{team.emptySpots ? <ul className="public-empty-spots">{Array.from({length:team.emptySpots},(_,index)=><li key={index}>Open squad spot {index+1}</li>)}</ul> : <p>Squad is full.</p>}</div></details>})}</div></section>
-      <footer className="public-live-footer"><span>READ-ONLY DISPLAY</span><span>Updated from persisted auction state · polling about every 1.5 seconds</span><Link href="/live">All auctions</Link></footer>
+      <footer className="public-live-footer"><span>READ-ONLY DISPLAY</span><Link href="/live">All auctions</Link></footer>
     </main>
   );
 }

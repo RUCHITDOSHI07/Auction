@@ -69,6 +69,13 @@ const publicMetadataCacheMs = 60_000;
 const maximumPublicMetadataEntries = 100;
 const publicAuctionReadsInFlight = createInFlightCoalescer<string, PublicAuctionResponse>();
 
+function getPlayerInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return parts.length > 1
+    ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+    : (parts[0] ?? "").slice(0, 2).toUpperCase();
+}
+
 function publicAuctionEtag(auction: PublicAuctionConfig) {
   const resultWindowVisible = Boolean(
     auction.lastResult && Date.now() - auction.lastResult.createdAt.getTime() <= auctionResultDeliveryGraceMs,
@@ -405,7 +412,7 @@ async function loadPublicAuction(auction: PublicAuctionConfig, etag: string) {
       currentPlayer: player ? {
       id: player.id,
       name: playerName,
-      initials: player.initials ?? playerName.slice(0, 2).toUpperCase(),
+      initials: getPlayerInitials(playerName),
       ...(player.photoUrl ? { photoUrl: player.photoUrl } : {}),
       role: player.role,
       category: player.category,
