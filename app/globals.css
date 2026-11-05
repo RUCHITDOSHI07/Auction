@@ -1717,18 +1717,64 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
 }
 
 :root[data-theme="light"] .public-live-room .public-player-stage {
-  border-color:rgba(38,57,46,.13);
-  background:linear-gradient(115deg,#eef1e6 0%,#fffdf7 58%);
+  border-color:rgba(38,57,46,.12);
+  background:linear-gradient(120deg,#ffffff 0%,#ffffff 62%,#f2f6ec 100%);
+}
+:root[data-theme="light"] .public-live-room {
+  background:linear-gradient(180deg,#f7f8f4 0%,#eff2eb 100%);
+}
+:root[data-theme="light"] .public-live-room .public-player-meta > span,
+:root[data-theme="light"] .public-live-room .public-player-attributes > span {
+  border-color:rgba(38,57,46,.1);
+  background:rgba(255,255,255,.82);
+}
+:root[data-theme="light"] .public-live-room .public-player-attributes {
+  border-color:rgba(38,57,46,.14);
 }
 :root[data-theme="light"] .public-live-room .public-current-bid {
-  border-color:rgba(38,57,46,.14);
-  background:linear-gradient(145deg,#e9ede4,#f7f5ed);
+  border-color:rgba(38,57,46,.12);
+  background:linear-gradient(120deg,#fff 0%,#f8faf5 100%);
 }
 :root[data-theme="light"] .public-live-room .public-current-bid > strong {
-  color:#496a43;
+  color:#426338;
+}
+:root[data-theme="light"] .public-live-room .public-current-bid .public-winner {
+  border-color:rgba(38,57,46,.14);
+}
+:root[data-theme="light"] .public-live-room .public-team {
+  border-color:rgba(38,57,46,.11);
+  background:#fff;
+  box-shadow:0 4px 14px rgba(38,57,46,.055);
+}
+:root[data-theme="light"] .public-live-room .public-team-metrics > span {
+  border-radius:5px;
+  background:#f4f6f1;
+  padding:.3rem .38rem;
+}
+:root[data-theme="light"] .public-live-room .public-team-metrics small {
+  font-size:.58rem;
+  letter-spacing:0;
+  white-space:nowrap;
+  color:#687367;
+}
+:root[data-theme="light"] .public-live-room .public-team-metrics b {
+  color:#26392e;
 }
 :root[data-theme="light"] .public-live-room .public-team-leading {
-  background:#f0f3e8;
+  border-color:#71915d;
+  background:#f2f7ed;
+  box-shadow:inset 3px 0 0 #71915d,0 4px 14px rgba(38,57,46,.055);
+}
+:root[data-theme="light"] .public-live-room .public-team-leading .public-team-metrics > span {
+  background:#e9f0e2;
+}
+:root[data-theme="light"] .public-live-room .public-team .public-squad-track {
+  background:#e2e8de;
+}
+@media (min-width:601px) and (max-width:1100px) {
+  :root[data-theme="light"] .public-live-room .public-team-content .public-team-metrics {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
 }
 :root[data-theme="light"] .public-live-room .public-category-limit {
   border-color:rgba(70,117,80,.3);
