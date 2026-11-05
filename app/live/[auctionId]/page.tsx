@@ -243,7 +243,7 @@ export default function PublicLivePage() {
                         <span><small>SQUAD</small><b>{team.playersCount}/{team.squadSize}</b></span>
                         <span><small>A/B/C PLAYERS</small><b>{team.premiumPlayersCount}{team.premiumPlayersLimit === undefined ? "" : `/${team.premiumPlayersLimit}`}</b></span>
                       </div>
-                      {categoryLimitReached && <span className={`public-category-limit${currentPlayerIsPremium ? " blocked" : ""}`}>A/B/C LIMIT REACHED{currentPlayerIsPremium ? " · CANNOT BID ON THIS PLAYER" : ""}</span>}
+                      {auction.categoryPhase === "premium" && categoryLimitReached && <span className={`public-category-limit${currentPlayerIsPremium ? " blocked" : ""}`}>A/B/C LIMIT REACHED{currentPlayerIsPremium ? " · CANNOT BID ON THIS PLAYER" : ""}</span>}
                       <div className="public-squad-track" role="progressbar" aria-label="Squad spots filled" aria-valuenow={team.playersCount} aria-valuemin={0} aria-valuemax={team.squadSize}>
                         <span style={{ width: `${squadProgress}%` }} />
                       </div>
