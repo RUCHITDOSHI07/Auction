@@ -1498,28 +1498,20 @@ export async function submitAuctionBid(
   const indexSetupStartedAt = performance.now();
   await ensureHistoryIndexes(collections.history);
   const indexSetupMs = performance.now() - indexSetupStartedAt;
-  const duplicateLookupStartedAt = performance.now();
-  if (requestId && await collections.history.findOne({ requestId })) {
-    const persisted = await collections.auctions.findOne({ id: auctionId });
-    if (!persisted) throw new Error("Auction not found after duplicate bid request.");
-    if (diagnosticsEnabled) {
-      console.info(JSON.stringify({
-        event: "auction_bid_save",
-        outcome: "duplicate",
-        indexSetupMs: Math.round(indexSetupMs),
-        duplicateLookupMs: Math.round(performance.now() - duplicateLookupStartedAt),
-        totalMs: Math.round(performance.now() - startedAt),
-      }));
-    }
-    return;
-  }
-  const duplicateLookupMs = performance.now() - duplicateLookupStartedAt;
   const session = collections.database.client.startSession();
   const transactionStartedAt = performance.now();
   let outcome = "failed";
+  let auctionReadMs = 0;
+  let eligibilityReadMs = 0;
+  let teamViewsMs = 0;
+  let auctionUpdateMs = 0;
+  let historyInsertMs = 0;
+  let duplicateLookupMs = 0;
   try {
     await session.withTransaction(async () => {
+      let stepStartedAt = performance.now();
       const auction = await collections.auctions.findOne({ id: auctionId }, { session });
+      auctionReadMs += performance.now() - stepStartedAt;
       if (!auction || auction.status !== "live") throw new Error("Bids can only be entered while the auction is live.");
       if (auction.awaitingAdvance) throw new Error("Advance to the next player before placing another bid.");
       if (typeof auction.currentBid !== "number") throw new Error("Auction bid state is incomplete; reinitialize the auction.");
@@ -1527,6 +1519,7 @@ export async function submitAuctionBid(
       if (!playerId || !auction.playerPoolIds?.includes(playerId)) throw new Error("There is no eligible current player.");
       if (!auction.teamIds.includes(teamId)) throw new Error("This team is not configured for the auction.");
 
+      stepStartedAt = performance.now();
       const entry = await collections.tournamentPlayers.findOne({
         tournamentId: auction.tournamentId,
         gender: auction.gender,
@@ -1540,6 +1533,7 @@ export async function submitAuctionBid(
         gender: auction.gender,
         status: "active",
       }, { session });
+      eligibilityReadMs += performance.now() - stepStartedAt;
       if (!entry || !player || player.gender !== auction.gender) throw new Error("Current player is not eligible for this auction.");
       if (!Number.isFinite(entry.basePrice) || entry.basePrice < 0) throw new Error("Current player has an invalid base price.");
       const playerCategory = entry.category ?? player.category;
@@ -1548,7 +1542,9 @@ export async function submitAuctionBid(
         throw new Error("The leading team cannot bid twice in a row. Another team must raise the bid first.");
       }
 
+      stepStartedAt = performance.now();
       const teamViews = await getTeamViews(collections, auction, session);
+      teamViewsMs += performance.now() - stepStartedAt;
       const selectedTeam = teamViews.find((candidate) => candidate.id === teamId);
       if (!selectedTeam) throw new Error("Selected team is not eligible for this auction.");
       if (selectedTeam.playersCount >= auction.maximumSquadSize) throw new Error("This team has reached the maximum squad size.");
@@ -1575,13 +1571,16 @@ export async function submitAuctionBid(
         currentBid: auction.currentBid,
         ...(auction.highestTeamId ? { highestTeamId: auction.highestTeamId } : { highestTeamId: { $exists: false } }),
       };
+      stepStartedAt = performance.now();
       const result = await collections.auctions.updateOne(
         auctionFilter,
         { $set: { currentBid: amount, highestTeamId: teamId, updatedAt: new Date() } },
         { session },
       );
+      auctionUpdateMs += performance.now() - stepStartedAt;
       if (result.modifiedCount !== 1) throw new Error("Auction changed while saving this bid. Reload and try again.");
 
+      stepStartedAt = performance.now();
       await appendHistory(collections, auction, "BID_UPDATED", session, admin, {
         ...(requestId ? { requestId } : {}),
         playerId,
@@ -1590,11 +1589,17 @@ export async function submitAuctionBid(
         before: { currentBid: auction.currentBid, highestTeamId: auction.highestTeamId ?? null },
         after: { currentBid: amount, highestTeamId: teamId },
       });
+      historyInsertMs += performance.now() - stepStartedAt;
     });
     outcome = "saved";
   } catch (error) {
     const isDuplicateKey = error && typeof error === "object" && "code" in error && error.code === 11000;
-    if (!requestId || !isDuplicateKey || !await collections.history.findOne({ requestId })) throw error;
+    const duplicateLookupStartedAt = performance.now();
+    const isDuplicateRequest = requestId && isDuplicateKey
+      ? Boolean(await collections.history.findOne({ requestId }))
+      : false;
+    duplicateLookupMs = performance.now() - duplicateLookupStartedAt;
+    if (!isDuplicateRequest) throw error;
     outcome = "duplicate";
   } finally {
     await session.endSession();
@@ -1603,6 +1608,11 @@ export async function submitAuctionBid(
         event: "auction_bid_save",
         outcome,
         indexSetupMs: Math.round(indexSetupMs),
+        auctionReadMs: Math.round(auctionReadMs),
+        eligibilityReadMs: Math.round(eligibilityReadMs),
+        teamViewsMs: Math.round(teamViewsMs),
+        auctionUpdateMs: Math.round(auctionUpdateMs),
+        historyInsertMs: Math.round(historyInsertMs),
         duplicateLookupMs: Math.round(duplicateLookupMs),
         transactionMs: Math.round(performance.now() - transactionStartedAt),
         totalMs: Math.round(performance.now() - startedAt),
