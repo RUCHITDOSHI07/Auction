@@ -16,26 +16,38 @@ import {
 type RouteContext = { params: Promise<{ auctionId: string }> };
 
 export async function PATCH(request: Request, context: RouteContext) {
+  const diagnosticsEnabled = process.env.AUCTION_BID_DIAGNOSTICS === "true";
+  const startedAt = performance.now();
+  let action: unknown;
+  let authenticationMs = 0;
+  let bidProcessingMs = 0;
   try {
+    const authenticationStartedAt = performance.now();
     const admin = await requireAdmin();
+    authenticationMs = performance.now() - authenticationStartedAt;
     const { auctionId } = await context.params;
     const body = await request.json() as { action?: unknown; teamId?: unknown; amount?: unknown; bidIncrement?: unknown; requestId?: unknown; playerId?: unknown; bids?: unknown; expectedResultEventId?: unknown };
+    action = body.action;
     if (body.action === "bid-increment") {
       return NextResponse.json({ room: await updateAuctionBidIncrement(auctionId, body.bidIncrement, admin) });
     }
     if (body.action === "bid" || body.action === "bid-next") {
+      const bidStartedAt = performance.now();
       await submitAuctionBid(auctionId, body.teamId, body.action === "bid-next" ? undefined : body.amount, admin, body.requestId, body.playerId);
+      bidProcessingMs = performance.now() - bidStartedAt;
       return NextResponse.json({ success: true });
     }
     if (body.action === "bid-batch") {
       if (!Array.isArray(body.bids)) {
         return NextResponse.json({ error: "Bids must be provided as an array.", savedCount: 0 }, { status: 400 });
       }
+      const bidStartedAt = performance.now();
       const result = await processAuctionBidBatch(body.bids as unknown[], async (value: unknown) => {
         if (!value || typeof value !== "object") throw new Error("Bid details are invalid.");
         const bid = value as { playerId?: unknown; teamId?: unknown; amount?: unknown; requestId?: unknown };
         await submitAuctionBid(auctionId, bid.teamId, bid.amount, admin, bid.requestId, bid.playerId);
       });
+      bidProcessingMs = performance.now() - bidStartedAt;
       if (!result.success) {
         return NextResponse.json({
           error: result.error,
@@ -75,5 +87,15 @@ export async function PATCH(request: Request, context: RouteContext) {
       { error: error instanceof Error ? error.message : "Unable to update auction." },
       { status: 400 },
     );
+  } finally {
+    if (diagnosticsEnabled && (action === "bid" || action === "bid-next" || action === "bid-batch")) {
+      console.info(JSON.stringify({
+        event: "auction_bid_api",
+        action,
+        authenticationMs: Math.round(authenticationMs),
+        bidProcessingMs: Math.round(bidProcessingMs),
+        handlerMs: Math.round(performance.now() - startedAt),
+      }));
+    }
   }
 }
