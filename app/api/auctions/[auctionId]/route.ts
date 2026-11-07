@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { AdminApiError, requireAdmin } from "@/lib/auth/admin-api";
+import { processAuctionBidBatch } from "@/lib/auction/bid-batch";
 import {
   markCurrentAuctionPlayerUnsold,
   undoCurrentAuctionPlayerUnsold,
@@ -18,13 +19,31 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     const admin = await requireAdmin();
     const { auctionId } = await context.params;
-    const body = await request.json() as { action?: unknown; teamId?: unknown; amount?: unknown; bidIncrement?: unknown; requestId?: unknown; expectedResultEventId?: unknown };
+    const body = await request.json() as { action?: unknown; teamId?: unknown; amount?: unknown; bidIncrement?: unknown; requestId?: unknown; bids?: unknown; expectedResultEventId?: unknown };
     if (body.action === "bid-increment") {
       return NextResponse.json({ room: await updateAuctionBidIncrement(auctionId, body.bidIncrement, admin) });
     }
     if (body.action === "bid" || body.action === "bid-next") {
       await submitAuctionBid(auctionId, body.teamId, body.action === "bid-next" ? undefined : body.amount, admin, body.requestId);
       return NextResponse.json({ success: true });
+    }
+    if (body.action === "bid-batch") {
+      if (!Array.isArray(body.bids)) {
+        return NextResponse.json({ error: "Bids must be provided as an array.", savedCount: 0 }, { status: 400 });
+      }
+      const result = await processAuctionBidBatch(body.bids as unknown[], async (value: unknown) => {
+        if (!value || typeof value !== "object") throw new Error("Bid details are invalid.");
+        const bid = value as { teamId?: unknown; amount?: unknown; requestId?: unknown };
+        await submitAuctionBid(auctionId, bid.teamId, bid.amount, admin, bid.requestId);
+      });
+      if (!result.success) {
+        return NextResponse.json({
+          error: result.error,
+          savedCount: result.savedCount,
+          failedIndex: result.failedIndex,
+        }, { status: 400 });
+      }
+      return NextResponse.json({ success: true, savedCount: result.savedCount });
     }
     if (body.action === "sold") {
       return NextResponse.json({ room: await sellCurrentAuctionPlayer(auctionId, admin) });

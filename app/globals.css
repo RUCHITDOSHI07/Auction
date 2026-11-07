@@ -546,7 +546,24 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
 .audit-correct-link { min-height:2.2rem; padding:.5rem .65rem; font-size:.63rem; }
 .audit-snapshots { border-top:1px solid var(--line); padding-top:.55rem; }
 
-.public-live-room { color:var(--cream); }
+.public-live-room {
+  display:flex;
+  min-height:100vh;
+  flex-direction:column;
+  color:var(--cream);
+}
+.public-live-room .public-live-grid {
+  width:100%;
+  flex:1 0 auto;
+  margin-bottom:0;
+}
+.public-live-room .public-live-footer {
+  width:100%;
+  max-width:none;
+  margin-top:auto;
+  margin-right:0;
+  margin-left:0;
+}
 .public-live-room .public-header { gap:1rem; }
 .public-live-room .live-brand { min-width:0; overflow-wrap:anywhere; }
 .public-live-room .public-meta { justify-content:flex-end; flex-wrap:wrap; text-align:right; }
@@ -1802,4 +1819,233 @@ h1,h2,h3 { font-family:"Bahnschrift SemiBold","Bahnschrift","Aptos Display","Seg
   .public-live-room .public-current-bid .public-increment { grid-area:auto; grid-column:1/-1; }
   .public-live-room .public-current-bid .public-winner { border-top:1px solid var(--line); border-bottom:0; border-left:0; padding:.7rem 0 0; }
   .public-live-room .public-current-bid .public-increment { white-space:normal; }
+}
+
+.public-live-room .public-live-grid {
+  grid-template-columns:minmax(0,1fr);
+}
+.public-live-room .public-live-top-grid {
+  display:grid;
+  grid-template-columns:minmax(0,1.8fr) minmax(18rem,1fr);
+  align-items:stretch;
+  gap:1rem;
+}
+.public-live-room .public-live-top-grid > .public-current-bid {
+  display:flex;
+  min-width:0;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:1.2rem;
+  padding:clamp(1rem,2vw,2rem);
+}
+.public-live-room .public-live-top-grid > .public-current-bid .public-winner {
+  width:100%;
+  border-top:1px solid var(--line);
+  border-bottom:0;
+  border-left:0;
+  padding:.9rem 0 0;
+}
+.public-live-room .public-live-top-grid > .public-current-bid .public-increment {
+  white-space:normal;
+}
+.public-live-room .public-team-grid {
+  display:flex;
+  align-items:stretch;
+  gap:.85rem;
+  overflow-x:auto;
+  overscroll-behavior-inline:contain;
+  padding:.35rem .25rem .9rem;
+  scroll-snap-type:x mandatory;
+  scrollbar-color:var(--lime) #17241f;
+  scrollbar-width:thin;
+}
+.public-live-room .public-squad-section > .public-section-title {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+}
+.public-live-room .public-carousel-controls {
+  display:flex;
+  flex:0 0 auto;
+  gap:.5rem;
+}
+.public-live-room .public-carousel-controls button {
+  display:grid;
+  width:2.5rem;
+  height:2.5rem;
+  place-items:center;
+  border:1px solid var(--line);
+  border-radius:50%;
+  background:#17241f;
+  color:var(--cream);
+  cursor:pointer;
+  font-size:1.25rem;
+  line-height:1;
+  transition:border-color .15s,background-color .15s,color .15s;
+}
+.public-live-room .public-carousel-controls button:hover {
+  border-color:var(--lime);
+  background:rgba(167,216,122,.14);
+  color:var(--lime);
+}
+.public-live-room .public-carousel-controls button:focus-visible {
+  outline:2px solid var(--lime);
+  outline-offset:3px;
+}
+.public-live-room .public-team-grid:focus-visible {
+  outline:2px solid var(--lime);
+  outline-offset:3px;
+}
+.public-live-room .public-team-grid > .public-team {
+  flex:0 0 clamp(18rem,27vw,23rem);
+  scroll-snap-align:start;
+}
+
+.public-live-room .public-player-stage {
+  min-height:25rem;
+  gap:clamp(1.5rem,2.4vw,2.75rem);
+  padding:clamp(1.5rem,2.8vw,2.75rem);
+}
+.public-live-room .public-player-portrait {
+  width:clamp(13rem,16vw,18rem);
+}
+.public-live-room .public-player-details {
+  grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);
+  gap:clamp(.8rem,1.5vw,1.25rem);
+}
+.public-live-room .public-player-meta {
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:.5rem;
+}
+.public-live-room .public-player-attributes {
+  grid-template-columns:minmax(0,1fr);
+  gap:.5rem;
+  border-left:1px solid var(--line);
+  padding-left:clamp(.8rem,1.5vw,1.2rem);
+}
+.public-live-room .public-player-details h1 {
+  font-size:clamp(2.2rem,3vw,3rem);
+  line-height:1.12;
+}
+.public-live-room .public-player-summary,
+.public-live-room .public-player-attributes {
+  gap:.8rem;
+}
+.public-live-room .public-player-meta,
+.public-live-room .public-player-attributes {
+  row-gap:.7rem;
+}
+.public-live-room .public-player-meta > span,
+.public-live-room .public-player-attributes > span {
+  padding:.8rem;
+}
+.public-live-room .public-player-meta small,
+.public-live-room .public-player-attributes small {
+  font-size:.72rem;
+}
+.public-live-room .public-player-meta b,
+.public-live-room .public-player-attributes b {
+  margin-top:.4rem;
+  font-size:1.1rem;
+  line-height:1.4;
+}
+.public-live-room .public-live-top-grid > .public-current-bid {
+  gap:1.5rem;
+  padding:clamp(1.5rem,2.5vw,2.5rem);
+}
+.public-live-room .public-live-top-grid > .public-current-bid > .eyebrow {
+  font-size:.9rem;
+}
+.public-live-room .public-live-top-grid > .public-current-bid > strong {
+  font-size:clamp(3rem,4vw,4.2rem);
+}
+.public-live-room .public-live-top-grid > .public-current-bid .public-winner {
+  gap:1.1rem;
+  padding-top:1.25rem;
+}
+.public-live-room .public-live-top-grid > .public-current-bid .public-winner .team-logo {
+  width:4.25rem;
+  height:4.25rem;
+  flex-basis:4.25rem;
+  font-size:.9rem;
+}
+.public-live-room .public-live-top-grid > .public-current-bid .public-winner small {
+  font-size:.82rem;
+}
+.public-live-room .public-live-top-grid > .public-current-bid .public-winner b {
+  margin-top:.3rem;
+  font-size:1.3rem;
+  line-height:1.4;
+}
+.public-live-room .public-live-top-grid > .public-current-bid .public-increment {
+  font-size:.9rem;
+}
+
+@media (max-width:900px) {
+  .public-live-room .public-live-top-grid {
+    grid-template-columns:minmax(0,1fr);
+  }
+}
+@media (max-width:600px) {
+  .public-live-room .public-player-stage {
+    min-height:0;
+    gap:1rem;
+    padding:1rem;
+  }
+  .public-live-room .public-player-portrait {
+    width:clamp(8rem,38vw,11rem);
+    align-self:center;
+  }
+  .public-live-room .public-player-details {
+    width:100%;
+    gap:.85rem;
+  }
+  .public-live-room .public-player-attributes {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .public-live-room .public-player-attributes > span:last-child {
+    grid-column:1/-1;
+  }
+  .public-live-room .public-player-details h1 {
+    font-size:1.8rem;
+  }
+  .public-live-room .public-player-meta > span,
+  .public-live-room .public-player-attributes > span {
+    padding:.55rem;
+  }
+  .public-live-room .public-player-meta small,
+  .public-live-room .public-player-attributes small {
+    font-size:.58rem;
+  }
+  .public-live-room .public-player-meta b,
+  .public-live-room .public-player-attributes b {
+    font-size:.85rem;
+  }
+  .public-live-room .public-live-top-grid > .public-current-bid {
+    gap:1rem;
+    padding:1.25rem;
+  }
+  .public-live-room .public-live-top-grid > .public-current-bid > strong {
+    font-size:2.5rem;
+  }
+  .public-live-room .public-live-top-grid > .public-current-bid .public-winner .team-logo {
+    width:3.5rem;
+    height:3.5rem;
+    flex-basis:3.5rem;
+  }
+  .public-live-room .public-live-top-grid > .public-current-bid .public-winner b {
+    font-size:1.05rem;
+  }
+  .public-live-room .public-squad-section > .public-section-title {
+    align-items:flex-start;
+  }
+  .public-live-room .public-carousel-controls button {
+    width:2.25rem;
+    height:2.25rem;
+  }
+  .public-live-room .public-team-grid > .public-team {
+    flex-basis:min(88vw,24rem);
+  }
 }

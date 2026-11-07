@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { StatusBadge } from "@/components/ui/Primitives";
 import ThemeToggle from "@/components/ui/ThemeToggle";
@@ -87,12 +87,41 @@ function money(value: number) {
   return `₹${value.toLocaleString("en-IN")}`;
 }
 
+function purseMoney(value: number) {
+  if (value >= 100_000) {
+    return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(value / 100_000)}L`;
+  }
+  return money(value);
+}
+
 export default function PublicLivePage() {
   const { auctionId } = useParams<{ auctionId: string }>();
+  const teamCarouselRef = useRef<HTMLDivElement>(null);
+  const previousTeamOrderRef = useRef<string | null>(null);
   const [data, setData] = useState<PublicAuction | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const teamsByRemainingPurse = data
+    ? [...data.teams].sort((a, b) => b.remainingBudget - a.remainingBudget)
+    : [];
+  const teamOrderSignature = teamsByRemainingPurse.map((team) => team.id).join("|");
+
+  function scrollTeams(direction: -1 | 1) {
+    const carousel = teamCarouselRef.current;
+    carousel?.scrollBy({ left: direction * carousel.clientWidth * 0.8, behavior: "smooth" });
+  }
+
+  useLayoutEffect(() => {
+    if (!teamOrderSignature) return;
+
+    const previousOrder = previousTeamOrderRef.current;
+    previousTeamOrderRef.current = teamOrderSignature;
+    const carousel = teamCarouselRef.current;
+    if (previousOrder && previousOrder !== teamOrderSignature && carousel) {
+      carousel.scrollLeft = 0;
+    }
+  }, [teamOrderSignature]);
 
   useEffect(() => {
     let active = true;
@@ -166,7 +195,7 @@ export default function PublicLivePage() {
   if (loading && !data) return <main className="public-live"><ThemeToggle /><section className="public-empty-state"><p>Loading persisted auction...</p><div className="public-skeleton" /></section></main>;
   if (!data) return <main className="public-live"><ThemeToggle /><section className="public-empty-state"><h1>Auction unavailable</h1><p>{error ?? "This share link does not match a configured tournament auction."}</p><button className="button button-outline" type="button" onClick={() => { setLoading(true); setRetryCount((value) => value + 1); }}>Retry</button><Link href="/live" className="button button-dark">All live auctions</Link></section></main>;
 
-  const { auction, currentPlayer, highestTeam, teams } = data;
+  const { auction, currentPlayer, highestTeam } = data;
   const genderLabel = auction.gender === "female" ? "WOMEN'S" : "MEN'S";
   const currentPlayerIsPremium = ["A", "B", "C"].includes((currentPlayer?.category ?? "").trim().toUpperCase());
   const statusTone = auction.status === "live" ? "live" : auction.status === "completed" ? "success" : "warning";
@@ -179,7 +208,7 @@ export default function PublicLivePage() {
       <AuctionResultFeedback variant="public" result={data.result} storageKey={`public-auction-${auction.id}`} />
       {stateMessage && <div className="public-auction-state"><StatusBadge tone={statusTone}>{stateMessage}</StatusBadge></div>}
       <div className="public-live-grid">
-        <div className="public-live-left-column">
+        <div className="public-live-top-grid">
           <section className="public-player-stage">
             {currentPlayer ? <>
               <PlayerPortrait className="public-player-portrait" name={currentPlayer.name} initials={currentPlayer.initials} photoUrl={currentPlayer.photoUrl} />
@@ -209,10 +238,17 @@ export default function PublicLivePage() {
         </div>
         <section className="public-squad-section">
           <div className="public-section-title">
-            <h2>Squads and purse</h2>
+            <div>
+              <h2>Squads and purse</h2>
+              <p>Scroll horizontally to review each team.</p>
+            </div>
+            <div className="public-carousel-controls" aria-label="Team carousel controls">
+              <button type="button" aria-label="Show previous teams" onClick={() => scrollTeams(-1)}>←</button>
+              <button type="button" aria-label="Show next teams" onClick={() => scrollTeams(1)}>→</button>
+            </div>
           </div>
-          <div className="public-team-grid">
-            {teams.map((team) => {
+          <div ref={teamCarouselRef} className="public-team-grid" role="region" aria-label="Team squads and purse carousel" tabIndex={0}>
+            {teamsByRemainingPurse.map((team) => {
               const categoryLimitReached = team.premiumPlayersLimit !== undefined
                 && team.premiumPlayersCount >= team.premiumPlayersLimit;
               const squadProgress = team.squadSize > 0
@@ -223,6 +259,7 @@ export default function PublicLivePage() {
                 <details
                   className={`public-team${team.id === highestTeam?.id ? " public-team-leading" : ""}`}
                   key={team.id}
+                  data-team-id={team.id}
                 >
                   <summary className="public-team-summary">
                     <span className="public-team-logo">
@@ -238,8 +275,8 @@ export default function PublicLivePage() {
                         {team.id === highestTeam?.id && <StatusBadge tone="live">LEADING</StatusBadge>}
                       </div>
                       <div className="public-team-metrics">
-                        <span><small>REMAINING PURSE</small><b>{money(team.remainingBudget)}</b></span>
-                        <span><small>MAXIMUM BID</small><b>{money(team.maximumAffordableBid)}</b></span>
+                        <span><small>REMAINING PURSE</small><b>{purseMoney(team.remainingBudget)}</b></span>
+                        <span><small>MAXIMUM BID</small><b>{purseMoney(team.maximumAffordableBid)}</b></span>
                         <span><small>SQUAD</small><b>{team.playersCount}/{team.squadSize}</b></span>
                         <span><small>A/B/C PLAYERS</small><b>{team.premiumPlayersCount}{team.premiumPlayersLimit === undefined ? "" : `/${team.premiumPlayersLimit}`}</b></span>
                       </div>

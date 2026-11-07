@@ -40,6 +40,8 @@ type CorrectionPreview = {
 };
 
 type AuctionAction = "initialize" | "start" | "pause" | "resume" | "complete" | "sold" | "unsold" | "next-player" | "next-round";
+type PendingBidSave = { auctionId: string; teamId: string; amount?: number; requestId: string; teamName: string };
+const bidBatchDelayMs = 150;
 
 function formatMoney(value: number) {
   return `₹${value.toLocaleString("en-IN")}`;
@@ -83,6 +85,8 @@ function AdminAuctionContent() {
   const pendingBidCountRef = useRef(0);
   const bidSaveFailedRef = useRef(false);
   const bidSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const pendingBidBatchRef = useRef<PendingBidSave[]>([]);
+  const bidBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasLocalBid, setHasLocalBid] = useState(false);
   const [bidSaveBlocked, setBidSaveBlocked] = useState(false);
   const resultActionLock = useRef(false);
@@ -188,12 +192,69 @@ function AdminAuctionContent() {
     setRetryCount((count) => count + 1);
   }
 
+  function flushPendingBids() {
+    if (bidBatchTimerRef.current) {
+      clearTimeout(bidBatchTimerRef.current);
+      bidBatchTimerRef.current = null;
+    }
+    const batch = pendingBidBatchRef.current.splice(0);
+    if (batch.length === 0) return;
+
+    bidSaveQueue.current = bidSaveQueue.current
+      .then(async () => {
+        if (bidSaveFailedRef.current) return;
+        const response = await fetch(`/api/auctions/${encodeURIComponent(batch[0].auctionId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "bid-batch",
+            bids: batch.map((bid) => ({
+              teamId: bid.teamId,
+              ...(bid.amount === undefined ? {} : { amount: bid.amount }),
+              requestId: bid.requestId,
+            })),
+          }),
+        });
+        const result = await response.json() as { success?: boolean; error?: string; savedCount?: number };
+        if (!response.ok || !result.success) {
+          const savedCount = result.savedCount ?? 0;
+          const savedMessage = savedCount > 0 ? ` ${savedCount} earlier bid${savedCount === 1 ? " was" : "s were"} saved.` : "";
+          throw new Error(`${result.error ?? "Unable to save bids."}${savedMessage}`);
+        }
+        setNotice(batch.length === 1
+          ? `Bid saved for ${batch[0].teamName}.`
+          : `${batch.length} bids saved.`);
+      })
+      .catch(async (bidError: unknown) => {
+        bidSaveFailedRef.current = true;
+        const message = bidError instanceof Error ? bidError.message : "Unable to save bids.";
+        try {
+          const refresh = await fetch(`/api/auctions?tournamentId=${encodeURIComponent(tournamentId)}&gender=${gender}`, { cache: "no-store" });
+          const latest = await refresh.json() as { room?: AuctionRoom; error?: string };
+          if (!refresh.ok || !latest.room) throw new Error(latest.error ?? "Unable to reload auction.");
+          setRoom(latest.room);
+          setHasLocalBid(false);
+          setBidSaveBlocked(false);
+          setError(`${message} The latest saved auction state was restored.`);
+        } catch (refreshError) {
+          setBidSaveBlocked(true);
+          const refreshMessage = refreshError instanceof Error ? refreshError.message : "Unable to reload auction.";
+          setError(`${message} ${refreshMessage}`);
+        }
+      })
+      .finally(() => {
+        pendingBidCountRef.current -= batch.length;
+        setPendingBidCount(pendingBidCountRef.current);
+      });
+  }
+
   async function runAction(action: AuctionAction, expectedResultEventId?: string) {
     if (!room?.auction) return;
     setSaving(true);
     setError(null);
     setNotice(null);
     try {
+      flushPendingBids();
       await bidSaveQueue.current;
       if (bidSaveFailedRef.current) {
         bidSaveFailedRef.current = false;
@@ -268,44 +329,16 @@ function AdminAuctionContent() {
     setBidAmount("");
     pendingBidCountRef.current += 1;
     setPendingBidCount(pendingBidCountRef.current);
-    bidSaveQueue.current = bidSaveQueue.current
-      .then(async () => {
-        if (bidSaveFailedRef.current) return;
-        const response = await fetch(`/api/auctions/${encodeURIComponent(auction.id)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: customAmount === undefined ? "bid-next" : "bid",
-            teamId,
-            ...(customAmount === undefined ? {} : { amount }),
-            requestId: crypto.randomUUID(),
-          }),
-        });
-        const result = await response.json() as { success?: boolean; error?: string };
-        if (!response.ok || !result.success) throw new Error(result.error ?? "Unable to save bid.");
-        setNotice(`Bid saved for ${team.name}.`);
-      })
-      .catch(async (bidError: unknown) => {
-        bidSaveFailedRef.current = true;
-        const message = bidError instanceof Error ? bidError.message : "Unable to save bid.";
-        try {
-          const refresh = await fetch(`/api/auctions?tournamentId=${encodeURIComponent(tournamentId)}&gender=${gender}`, { cache: "no-store" });
-          const latest = await refresh.json() as { room?: AuctionRoom; error?: string };
-          if (!refresh.ok || !latest.room) throw new Error(latest.error ?? "Unable to reload auction.");
-          setRoom(latest.room);
-          setHasLocalBid(false);
-          setBidSaveBlocked(false);
-          setError(`${message} The latest saved auction state was restored.`);
-        } catch (refreshError) {
-          setBidSaveBlocked(true);
-          const refreshMessage = refreshError instanceof Error ? refreshError.message : "Unable to reload auction.";
-          setError(`${message} ${refreshMessage}`);
-        }
-      })
-      .finally(() => {
-        pendingBidCountRef.current -= 1;
-        setPendingBidCount(pendingBidCountRef.current);
-      });
+    pendingBidBatchRef.current.push({
+      auctionId: auction.id,
+      teamId,
+      ...(customAmount === undefined ? {} : { amount }),
+      requestId: crypto.randomUUID(),
+      teamName: team.name,
+    });
+    if (!bidBatchTimerRef.current) {
+      bidBatchTimerRef.current = setTimeout(flushPendingBids, bidBatchDelayMs);
+    }
   }
 
   async function saveBidIncrement() {
@@ -320,6 +353,7 @@ function AdminAuctionContent() {
     setError(null);
     setNotice(null);
     try {
+      flushPendingBids();
       await bidSaveQueue.current;
       if (bidSaveFailedRef.current) {
         bidSaveFailedRef.current = false;
