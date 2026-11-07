@@ -40,8 +40,8 @@ type CorrectionPreview = {
 };
 
 type AuctionAction = "initialize" | "start" | "pause" | "resume" | "complete" | "sold" | "unsold" | "next-player" | "next-round";
-type PendingBidSave = { auctionId: string; playerId: string; teamId: string; amount?: number; requestId: string; teamName: string };
-const bidBatchDelayMs = 150;
+type PendingBidSave = { auctionId: string; playerId: string; teamId: string; amount?: number; requestId: string; teamName: string; queuedAt: number };
+const bidBatchDelayMs = 50;
 
 function formatMoney(value: number) {
   return `₹${value.toLocaleString("en-IN")}`;
@@ -203,6 +203,7 @@ function AdminAuctionContent() {
     bidSaveQueue.current = bidSaveQueue.current
       .then(async () => {
         if (bidSaveFailedRef.current) return;
+        const requestStartedAt = performance.now();
         const response = await fetch(`/api/auctions/${encodeURIComponent(batch[0].auctionId)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -217,6 +218,16 @@ function AdminAuctionContent() {
           }),
         });
         const result = await response.json() as { success?: boolean; error?: string; savedCount?: number };
+        const requestFinishedAt = performance.now();
+        if (searchParams.get("bidDiagnostics") === "true") {
+          console.info(JSON.stringify({
+            event: "auction_bid_client_timing",
+            batchSize: batch.length,
+            queueWaitMs: Math.round(requestStartedAt - Math.min(...batch.map((bid) => bid.queuedAt))),
+            requestMs: Math.round(requestFinishedAt - requestStartedAt),
+            clickToResponseMs: Math.round(requestFinishedAt - Math.min(...batch.map((bid) => bid.queuedAt))),
+          }));
+        }
         if (!response.ok || !result.success) {
           const savedCount = result.savedCount ?? 0;
           const savedMessage = savedCount > 0 ? ` ${savedCount} earlier bid${savedCount === 1 ? " was" : "s were"} saved.` : "";
@@ -289,7 +300,7 @@ function AdminAuctionContent() {
     }
   }
 
-  function submitBid(teamId: string, customAmount?: number) {
+  function submitBid(teamId: string, queuedAt: number, customAmount?: number) {
     if (!room?.auction || saving) return;
     if (bidSaveBlocked) {
       setError("Reload the auction before bidding because the latest saved state could not be loaded.");
@@ -342,6 +353,7 @@ function AdminAuctionContent() {
       ...(customAmount === undefined ? {} : { amount }),
       requestId: crypto.randomUUID(),
       teamName: team.name,
+      queuedAt,
     });
     if (!bidBatchTimerRef.current) {
       bidBatchTimerRef.current = setTimeout(flushPendingBids, bidBatchDelayMs);
@@ -616,7 +628,7 @@ function AdminAuctionContent() {
                       && bid >= minimumTeamBid
                       && bid <= team.remainingBudget
                       && bid <= team.maximumAffordableBid;
-                    return <button className={`team-bid-card${team.id === auction.highestTeamId ? " leading" : ""}`} key={team.id} type="button" disabled={saving || !canBid} onClick={() => void submitBid(team.id, bidAmount ? bid : undefined)} aria-label={`${team.name}, bid ${formatMoney(bid)}`}>
+                    return <button className={`team-bid-card${team.id === auction.highestTeamId ? " leading" : ""}`} key={team.id} type="button" disabled={saving || !canBid} onClick={(event) => void submitBid(team.id, event.timeStamp, bidAmount ? bid : undefined)} aria-label={`${team.name}, bid ${formatMoney(bid)}`}>
                       <span className="team-bid-card-heading"><AuctionTeamLogo team={team} /><strong>{team.name}</strong>{team.id === auction.highestTeamId && <StatusBadge tone="live">LEADING</StatusBadge>}</span>
                       <span className="team-bid-card-metrics">
                         <span><small>REMAINING PURSE</small><b>{formatMoney(team.remainingBudget)}</b></span>
