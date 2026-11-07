@@ -34,11 +34,28 @@ export async function createAdminSession(admin: AdminUser) {
 export async function getCurrentAdmin(): Promise<AdminUser | null> {
   const token = (await cookies()).get(adminSessionCookie)?.value;
   if (!token) return null;
-  const sessions = await getSessionsCollection();
-  const session = await sessions.findOne({ tokenHash: hashSessionToken(token), expiresAt: { $gt: new Date() } });
-  if (!session) return null;
   const database = await getMongoDb();
-  return database.collection<AdminUser>("admins").findOne({ userId: session.userId, role: "admin" }, { projection: { _id: 0, userId: 1, name: 1, role: 1 } });
+  const [admin] = await database.collection("adminSessions").aggregate<AdminUser>([
+    { $match: { tokenHash: hashSessionToken(token), expiresAt: { $gt: new Date() } } },
+    {
+      $lookup: {
+        from: "admins",
+        let: { sessionUserId: "$userId" },
+        pipeline: [
+          { $match: { $expr: { $and: [
+            { $eq: ["$userId", "$$sessionUserId"] },
+            { $eq: ["$role", "admin"] },
+          ] } } },
+          { $project: { _id: 0, userId: 1, name: 1, role: 1 } },
+          { $limit: 1 },
+        ],
+        as: "admin",
+      },
+    },
+    { $unwind: "$admin" },
+    { $replaceRoot: { newRoot: "$admin" } },
+  ]).toArray();
+  return admin ?? null;
 }
 
 export async function requireAdmin() {
