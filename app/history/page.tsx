@@ -108,7 +108,7 @@ export default function HistoryPage() {
   return (
     <AdminShell>
       <div className="content-wrap narrow-content">
-        <PageHeader eyebrow="AUDIT TRAIL" title="Auction history" description="Persisted auction actions, bids, sales, and correction links." />
+        <PageHeader eyebrow="AUDIT TRAIL" title="Auction history" description="Persisted auction actions, completed bid trails, sales, and correction links." />
         <form className="history-filter-panel" onSubmit={submitFilters}>
           <label>Player name or ID<input value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} placeholder="Search player" /></label>
           <label>Tournament<select value={filters.tournamentId} onChange={(event) => setFilters({ ...filters, tournamentId: event.target.value })}><option value="">All tournaments</option>{options.tournaments.map((tournament) => <option key={tournament.id} value={tournament.id}>{tournament.name} · {tournament.season}</option>)}</select></label>

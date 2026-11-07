@@ -754,12 +754,14 @@ Record meaningful actions, such as:
 - Auction paused
 - Auction resumed
 - Player put on auction
-- Bid changed
+- Bid trail attached to the player's SOLD or UNSOLD event
 - Player SOLD
 - Player UNSOLD
 - Round completed
 - Round started
 - Undo performed
+
+Persist each accepted bid immediately with the current auction state and an ordered trail for the current player. Store the complete trail in the append-only SOLD or UNSOLD history event when the player outcome is recorded rather than writing a separate history event for every bid. Clear the active trail only when advancing to another player or phase.
 
 Purchase history should retain:
 

@@ -19,12 +19,12 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     const admin = await requireAdmin();
     const { auctionId } = await context.params;
-    const body = await request.json() as { action?: unknown; teamId?: unknown; amount?: unknown; bidIncrement?: unknown; requestId?: unknown; bids?: unknown; expectedResultEventId?: unknown };
+    const body = await request.json() as { action?: unknown; teamId?: unknown; amount?: unknown; bidIncrement?: unknown; requestId?: unknown; playerId?: unknown; bids?: unknown; expectedResultEventId?: unknown };
     if (body.action === "bid-increment") {
       return NextResponse.json({ room: await updateAuctionBidIncrement(auctionId, body.bidIncrement, admin) });
     }
     if (body.action === "bid" || body.action === "bid-next") {
-      await submitAuctionBid(auctionId, body.teamId, body.action === "bid-next" ? undefined : body.amount, admin, body.requestId);
+      await submitAuctionBid(auctionId, body.teamId, body.action === "bid-next" ? undefined : body.amount, admin, body.requestId, body.playerId);
       return NextResponse.json({ success: true });
     }
     if (body.action === "bid-batch") {
@@ -33,8 +33,8 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
       const result = await processAuctionBidBatch(body.bids as unknown[], async (value: unknown) => {
         if (!value || typeof value !== "object") throw new Error("Bid details are invalid.");
-        const bid = value as { teamId?: unknown; amount?: unknown; requestId?: unknown };
-        await submitAuctionBid(auctionId, bid.teamId, bid.amount, admin, bid.requestId);
+        const bid = value as { playerId?: unknown; teamId?: unknown; amount?: unknown; requestId?: unknown };
+        await submitAuctionBid(auctionId, bid.teamId, bid.amount, admin, bid.requestId, bid.playerId);
       });
       if (!result.success) {
         return NextResponse.json({

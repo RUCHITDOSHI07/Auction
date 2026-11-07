@@ -16,6 +16,20 @@ export interface AuctionResultSnapshot {
   displayUntil: Date;
 }
 
+export interface AuctionBidTrailEntry {
+  requestId?: string;
+  teamId: string;
+  teamName: string;
+  amount: number;
+  admin: { userId: string; name?: string };
+  createdAt: Date;
+}
+
+export interface AuctionPlayerBidTrail {
+  playerId: string;
+  bids: AuctionBidTrailEntry[];
+}
+
 export interface AuctionConfig {
   id: string;
   tournamentId: string;
@@ -35,6 +49,7 @@ export interface AuctionConfig {
   currentPlayerId?: string;
   currentBid?: number;
   highestTeamId?: string;
+  currentPlayerBidTrail?: AuctionPlayerBidTrail;
   awaitingAdvance?: boolean;
   lastResult?: AuctionResultSnapshot;
   lastActionEventId?: string;
@@ -56,6 +71,7 @@ export type AuctionConfigInput = Omit<
   | "currentPlayerId"
   | "currentBid"
   | "highestTeamId"
+  | "currentPlayerBidTrail"
   | "awaitingAdvance"
   | "lastResult"
   | "lastActionEventId"

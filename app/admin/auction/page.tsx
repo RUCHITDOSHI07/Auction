@@ -40,7 +40,7 @@ type CorrectionPreview = {
 };
 
 type AuctionAction = "initialize" | "start" | "pause" | "resume" | "complete" | "sold" | "unsold" | "next-player" | "next-round";
-type PendingBidSave = { auctionId: string; teamId: string; amount?: number; requestId: string; teamName: string };
+type PendingBidSave = { auctionId: string; playerId: string; teamId: string; amount?: number; requestId: string; teamName: string };
 const bidBatchDelayMs = 150;
 
 function formatMoney(value: number) {
@@ -209,6 +209,7 @@ function AdminAuctionContent() {
           body: JSON.stringify({
             action: "bid-batch",
             bids: batch.map((bid) => ({
+              playerId: bid.playerId,
               teamId: bid.teamId,
               ...(bid.amount === undefined ? {} : { amount: bid.amount }),
               requestId: bid.requestId,
@@ -300,6 +301,11 @@ function AdminAuctionContent() {
       return;
     }
     const auction = room.auction;
+    const playerId = auction.currentPlayerId;
+    if (!playerId) {
+      setError("There is no current player to receive a bid.");
+      return;
+    }
     const team = room.teams.find((candidate) => candidate.id === teamId);
     if (!team) {
       setError("Selected team is not available in this auction.");
@@ -331,6 +337,7 @@ function AdminAuctionContent() {
     setPendingBidCount(pendingBidCountRef.current);
     pendingBidBatchRef.current.push({
       auctionId: auction.id,
+      playerId,
       teamId,
       ...(customAmount === undefined ? {} : { amount }),
       requestId: crypto.randomUUID(),
