@@ -1492,14 +1492,31 @@ export async function submitAuctionBid(
     ? requestIdValue
     : undefined;
 
+  const diagnosticsEnabled = process.env.AUCTION_BID_DIAGNOSTICS === "true";
+  const startedAt = performance.now();
   const collections = await getCollections();
+  const indexSetupStartedAt = performance.now();
   await ensureHistoryIndexes(collections.history);
+  const indexSetupMs = performance.now() - indexSetupStartedAt;
+  const duplicateLookupStartedAt = performance.now();
   if (requestId && await collections.history.findOne({ requestId })) {
     const persisted = await collections.auctions.findOne({ id: auctionId });
     if (!persisted) throw new Error("Auction not found after duplicate bid request.");
+    if (diagnosticsEnabled) {
+      console.info(JSON.stringify({
+        event: "auction_bid_save",
+        outcome: "duplicate",
+        indexSetupMs: Math.round(indexSetupMs),
+        duplicateLookupMs: Math.round(performance.now() - duplicateLookupStartedAt),
+        totalMs: Math.round(performance.now() - startedAt),
+      }));
+    }
     return;
   }
+  const duplicateLookupMs = performance.now() - duplicateLookupStartedAt;
   const session = collections.database.client.startSession();
+  const transactionStartedAt = performance.now();
+  let outcome = "failed";
   try {
     await session.withTransaction(async () => {
       const auction = await collections.auctions.findOne({ id: auctionId }, { session });
@@ -1574,11 +1591,23 @@ export async function submitAuctionBid(
         after: { currentBid: amount, highestTeamId: teamId },
       });
     });
+    outcome = "saved";
   } catch (error) {
     const isDuplicateKey = error && typeof error === "object" && "code" in error && error.code === 11000;
     if (!requestId || !isDuplicateKey || !await collections.history.findOne({ requestId })) throw error;
+    outcome = "duplicate";
   } finally {
     await session.endSession();
+    if (diagnosticsEnabled) {
+      console.info(JSON.stringify({
+        event: "auction_bid_save",
+        outcome,
+        indexSetupMs: Math.round(indexSetupMs),
+        duplicateLookupMs: Math.round(duplicateLookupMs),
+        transactionMs: Math.round(performance.now() - transactionStartedAt),
+        totalMs: Math.round(performance.now() - startedAt),
+      }));
+    }
   }
 
 }
